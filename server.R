@@ -10,13 +10,18 @@ library(htmlwidgets)
 library(tidyverse)
 library(scales)
 library(plotly)
+library(DT)
+library(reactable)
 
 
 server <- function(input, output, session) {
   
   scores <- read_xlsx("overall_meta_analysis_overview_directions.xlsx") #load scores for each gene
   scores_fibrosis <- read_xlsx("overall_meta_analysis_overview_directions_fibrosis.xlsx") #load scores for each gene - fibrosis
-  
+  orthologs_mouse_fibrosis <- read_xlsx("fibrosis_top_score_mouse.xlsx")
+  orthologs_mouse_nas <- read_xlsx("nas_top_score_mouse.xlsx")
+  orthologs_zebrafish_fibrosis <- read_xlsx("fibrosis_top_score_zebrafish.xlsx")
+  orthologs_zebrafish_nas <- read_xlsx("nas_top_score_zebrafish.xlsx")
   ################################################ Top-Score Over Representation Analysis ###########################
   
   summary_table_top_score <- reactiveVal(NULL) #reactive summary_table for the first tab
@@ -181,13 +186,18 @@ server <- function(input, output, session) {
         stringsAsFactors = FALSE
       )
     } else {
-      cluster_df <- data.frame(
-        id = df_top_score$ID,
-        group = "Unclustered",
-        stringsAsFactors = FALSE
-      )
+      if(nrow(df_top_score) > 0){
+        cluster_df <- data.frame(
+          id = df_top_score$ID,
+          group = "Unclustered",
+          stringsAsFactors = FALSE
+        )
+      }
     }
     
+    if(nrow(df_top_score) == 0){
+      return(NULL)
+    }
     
     network_nodes <- unique(data.frame(
       id = df_top_score$ID,
@@ -440,8 +450,21 @@ server <- function(input, output, session) {
     )
   })
   
+  user_data_process_gene <- reactive({
+    req(input$gene_logfc_input_process_gene)  # wait until user uploads
+    read.csv(input$gene_logfc_input_process_gene$datapath)  # read the uploaded file
+  })
+  
+  output$concordance_ui <- renderUI({
+    req(input$gene_logfc_input_process_gene)
+    div(
+      style = "text-align: center;",
+      checkboxInput("concordance_process_gene", "Concordance filtering using logFC values", value = FALSE)
+    )
+  })
+  
   df_process_gene <- reactive({
-    if (input$direction_dropdown_process_gene == "Use Clustering from Top-Score Tab" &&
+    if (#input$direction_dropdown_process_gene == "Use Clustering from Top-Score Tab" &&
         !is.null(summary_table_top_score())) {
       
       df_initial_gene <- summary_table_top_score()
@@ -546,12 +569,45 @@ server <- function(input, output, session) {
       total_range <- total_max - total_min # range of total score
       centrality_range <- centrality_max - centrality_min # range of centrality score
       
+      user_genes <- NULL
+      if (!is.null(input$gene_logfc_input_process_gene)) {
+        user_genes <- tryCatch({
+          x <- user_data_process_gene()[[1]]         # first column
+          x <- as.character(x)
+          x <- trimws(x)
+          unique(x[!is.na(x) & nzchar(x)])
+        }, error = function(e) NULL)
+      } ## get user genes
+      
+      if(input$metric_top_score == "NAFLD Activity Score"){
+        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+          user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
+          user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
+        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+          user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
+          user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
+        }
+      }else{
+        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+          user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
+          user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
+        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+          user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
+          user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
+        }
+      }
+      
       gene_nodes <- data.frame(
         id = current_gene_ids,
         label = current_gene_ids,
         group = "gene",
         stringsAsFactors = FALSE
       ) %>%
+        { if (!is.null(user_genes)) dplyr::filter(., id %in% user_genes) else . } %>% ### user_gene filter
         left_join(scores_filtered, by = c("id" = "Gene")) %>%
         left_join(centrality_df_filtered, by = "id") %>%
         mutate(
@@ -578,6 +634,31 @@ server <- function(input, output, session) {
             "Combined score: ", round(combined_score, 2)
           )
         )
+      
+      if(!is.null(input$concordance_process_gene) && isTRUE(input$concordance_process_gene)){
+        user_data <- user_data_process_gene()
+        user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
+        user_genes_up <- user_data[user_data[[2]] > 0,1]
+        user_genes_down <- user_data[user_data[[2]] < 0,1]
+        if(input$metric_top_score == "NAFLD Activity Score"){
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+            user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+            user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
+          }
+        }else{
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+            user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+            user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+          }
+        }
+        gene_nodes <- gene_nodes[(gene_nodes$color == "green" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "red" & gene_nodes$id %in% user_genes_down),]
+      }
       
       output$gene_table_process_gene <- renderDataTable({
         gene_nodes %>%
@@ -659,12 +740,46 @@ server <- function(input, output, session) {
       total_range <- total_max - total_min
       centrality_range <- centrality_max - centrality_min
       
+      user_genes <- NULL
+      if (!is.null(input$gene_logfc_input_process_gene)) {
+        user_genes <- tryCatch({
+          x <- user_data_process_gene()[[1]]         # first column
+          x <- as.character(x)
+          x <- trimws(x)
+          unique(x[!is.na(x) & nzchar(x)])
+        }, error = function(e) NULL)
+      } ## get user genes
+      
+      
+      if(input$metric_top_score == "NAFLD Activity Score"){
+        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+          user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
+          user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
+        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+          user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
+          user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
+        }
+      }else{
+        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+          user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
+          user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
+        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+          user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
+          user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
+          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
+        }
+      }
+      
       gene_nodes <- data.frame(
         id = current_gene_ids,
         label = current_gene_ids,
         group = "gene",
         stringsAsFactors = FALSE
       ) %>%
+        { if (!is.null(user_genes)) dplyr::filter(., id %in% user_genes) else . } %>% ### user_gene filter
         left_join(scores_filtered, by = c("id" = "Gene")) %>%
         left_join(centrality_df_filtered, by = "id") %>%
         mutate(
@@ -691,6 +806,31 @@ server <- function(input, output, session) {
             "Combined score: ", round(combined_score, 2)
           )
         )
+      
+      if(!is.null(input$concordance_process_gene) && isTRUE(input$concordance_process_gene)){
+        user_data <- user_data_process_gene()
+        user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
+        user_genes_up <- user_data[user_data[[2]] > 0,1]
+        user_genes_down <- user_data[user_data[[2]] < 0,1]
+        if(input$metric_top_score == "NAFLD Activity Score"){
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+            user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+            user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
+          }
+        }else{
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+            user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+            user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+            user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+          }
+        }
+        gene_nodes <- gene_nodes[(gene_nodes$color == "green" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "red" & gene_nodes$id %in% user_genes_down),]
+      }
       
       output$gene_table <- renderDataTable({
         gene_nodes %>%
@@ -774,6 +914,544 @@ server <- function(input, output, session) {
       visPhysics(enabled = input$enable_physics_process_gene)
   }) #if checked stop motion
   
+  ############################### Stage-Dependent Networks
+  
+  
+  summary_table_temporal <- reactiveVal(NULL) #reactive summary_table for the first tab
+  vis_network_temporal <- reactiveVal(NULL) #reactive for downloading network as HTML
+
+  selected_data_temporal <- reactive({
+    req(input$category_dropdown_temporal, selected_data_temporal_xlsx()) ## require category_dropdown_top_score from the dropdown menu 
+    if(input$metric_temporal == "NAFLD Activity Score"){
+      if(input$direction_dropdown_temporal == "All Genes"){
+        filename_rds <- paste0("NAS_", input$category_dropdown_temporal, "_total.rds") ## load the selected MSigDB result
+        filepath_rds <- file.path("temporal/NAS/merged network", filename_rds) ## get the file path for the file
+      }else if(input$direction_dropdown_temporal == "Only Upregulated"){
+        filename_rds <- paste0("NAS_", input$category_dropdown_temporal, "_up.rds") ## load the selected MSigDB result
+        filepath_rds <- file.path("temporal/NAS/merged network", filename_rds) ## get the file path for the file
+      }else{
+        filename_rds <- paste0("NAS_", input$category_dropdown_temporal, "_down.rds") ## load the selected MSigDB result
+        filepath_rds <- file.path("temporal/NAS/merged network", filename_rds) ## get the file path for the file
+      } 
+    }else{
+      if(input$direction_dropdown_temporal == "All Genes"){
+        filename_rds <- paste0("fibrosis_", input$category_dropdown_temporal, "_total.rds") ## load the selected MSigDB result
+        filepath_rds <- file.path("temporal/fibrosis/merged network", filename_rds) ## get the file path for the file
+      }else if(input$direction_dropdown_temporal == "Only Upregulated"){
+        filename_rds <- paste0("fibrosis_", input$category_dropdown_temporal, "_up.rds") ## load the selected MSigDB result
+        filepath_rds <- file.path("temporal/fibrosis/merged network", filename_rds) ## get the file path for the file
+      }else{
+        filename_rds <- paste0("fibrosis_", input$category_dropdown_temporal, "_down.rds") ## load the selected MSigDB result
+        filepath_rds <- file.path("temporal/fibrosis/merged network", filename_rds) ## get the file path for the file
+      } 
+    }
+    
+    if (!file.exists(filepath_rds)) {
+      validate(need(FALSE, paste("No file found for", input$category_dropdown_temporal)))
+      return(NULL)  # never actually reached because validate() stops
+    }
+    
+    df_rds <- readRDS(filepath_rds) ## get the file
+    
+    df_xlsx <- selected_data_temporal_xlsx() #get msigdb output
+    
+    if (length(unique(df_xlsx$comparison)) > 1) {
+      unique_comparisons <- unique(df_xlsx$comparison)
+      df_rds_first <- df_rds[df_rds$comparison == unique_comparisons[1],]
+      df_temporal_first <- df_xlsx[df_xlsx$comparison == unique_comparisons[1],]
+      df_rds_first <- df_rds_first[(df_rds_first$from %in% df_temporal_first$ID), ] #filter for q value since some of msigdb will be eliminated
+      df_rds_first <- df_rds_first[df_rds_first$to %in% df_temporal_first$ID,] #filter for q value since some of msigdb will be eliminated
+      df_rds_second <- df_rds[df_rds$comparison == unique_comparisons[2],]
+      df_temporal_second <- df_xlsx[df_xlsx$comparison == unique_comparisons[2],]
+      df_rds_second <- df_rds_second[(df_rds_second$from %in% df_temporal_second$ID), ] #filter for q value since some of msigdb will be eliminated
+      df_rds_second <- df_rds_second[df_rds_second$to %in% df_temporal_second$ID,] #filter for q value since some of msigdb will be eliminated
+      df_rds <-  bind_rows(df_rds_first, df_rds_second)
+    }else{
+      df_rds <- df_rds[(df_rds$from %in% df_xlsx$ID), ] #filter for q value since some of msigdb will be eliminated
+      df_rds <- df_rds[df_rds$to %in% df_xlsx$ID,] #filter for q value since some of msigdb will be eliminated
+    }
+    
+    return(df_rds)
+  })
+  
+  selected_data_temporal_xlsx <- reactive({
+    req(input$category_dropdown_temporal) ## require category_dropdown_top_score from the dropdown menu 
+    if(input$metric_temporal == "NAFLD Activity Score"){
+      if(input$slider_temporal == "1"){
+        current_time <- "1_VS_0"
+        previous_time <- NULL
+        current_folder <- "first"
+        previous_folder <- NULL
+      }else if(input$slider_temporal == "2"){
+        current_time <- "2_VS_0"
+        previous_time <- "1_VS_0"
+        current_folder <- "second"
+        previous_folder <- "first"
+      }else if(input$slider_temporal == "3"){
+        current_time <- "3_VS_0"
+        previous_time <- "2_VS_0"
+        current_folder <- "third"
+        previous_folder <- "second"
+      }else{
+        current_time <- "4_VS_0"
+        previous_time <- "3_VS_0"
+        current_folder <- "fourth"
+        previous_folder <- "third"
+      }
+      if(input$direction_dropdown_temporal == "All Genes"){
+        if(is.null(previous_time)){
+          current_filename_xlsx <- paste0(current_time,"_",input$category_dropdown_temporal,"_","total.xlsx")
+          current_filepath_xlsx <- file.path("temporal/NAS",current_folder,current_filename_xlsx)
+        }else{
+          current_filename_xlsx <-  paste0(current_time,"_",input$category_dropdown_temporal,"_","total.xlsx")
+          previous_filename_xlsx <-  paste0(previous_time,"_",input$category_dropdown_temporal,"_","total.xlsx")
+          current_filepath_xlsx <- file.path("temporal/NAS",current_folder,current_filename_xlsx)
+          previous_filepath_xlsx <- file.path("temporal/NAS",previous_folder,previous_filename_xlsx)
+        }
+      }else if(input$direction_dropdown_temporal == "Only Upregulated"){
+        if(is.null(previous_time)){
+          current_filename_xlsx <- paste0(current_time,"_",input$category_dropdown_temporal,"_","up.xlsx")
+          current_filepath_xlsx <- file.path("temporal/NAS",current_folder,current_filename_xlsx)
+        }else{
+          current_filename_xlsx <-  paste0(current_time,"_",input$category_dropdown_temporal,"_","up.xlsx")
+          previous_filename_xlsx <-  paste0(previous_time,"_",input$category_dropdown_temporal,"_","up.xlsx")
+          current_filepath_xlsx <- file.path("temporal/NAS",current_folder,current_filename_xlsx)
+          previous_filepath_xlsx <- file.path("temporal/NAS",previous_folder,previous_filename_xlsx)
+        }
+      }else{
+        if(is.null(previous_time)){
+          current_filename_xlsx <- paste0(current_time,"_",input$category_dropdown_temporal,"_","down.xlsx")
+          current_filepath_xlsx <- file.path("temporal/NAS",current_folder,current_filename_xlsx)
+        }else{
+          current_filename_xlsx <-  paste0(current_time,"_",input$category_dropdown_temporal,"_","down.xlsx")
+          previous_filename_xlsx <-  paste0(previous_time,"_",input$category_dropdown_temporal,"_","down.xlsx")
+          current_filepath_xlsx <- file.path("temporal/NAS",current_folder,current_filename_xlsx)
+          previous_filepath_xlsx <- file.path("temporal/NAS",previous_folder,previous_filename_xlsx)
+        }
+      } 
+    }else{
+      if(input$slider_temporal == "F4"){
+        current_time <- "F4_VS_F0_F1"
+        previous_time <- "F3_VS_F0_F1"
+        current_folder <- "third"
+        previous_folder <- "second"
+      }else if(input$slider_temporal == "F3"){
+        current_time <- "F3_VS_F0_F1"
+        previous_time <- "F2_VS_F0_F1"
+        current_folder <- "second"
+        previous_folder <- "first"
+      }else{
+        current_time <- "F2_VS_F0_F1"
+        previous_time <- NULL
+        current_folder <- "first"
+        previous_folder <- NULL
+      }
+      if(input$direction_dropdown_temporal == "All Genes"){
+        if(is.null(previous_time)){
+          current_filename_xlsx <- paste0(current_time,"_",input$category_dropdown_temporal,"_","total.xlsx")
+          current_filepath_xlsx <- file.path("temporal/fibrosis",current_folder,current_filename_xlsx)
+        }else{
+          current_filename_xlsx <-  paste0(current_time,"_",input$category_dropdown_temporal,"_","total.xlsx")
+          previous_filename_xlsx <-  paste0(previous_time,"_",input$category_dropdown_temporal,"_","total.xlsx")
+          current_filepath_xlsx <- file.path("temporal/fibrosis",current_folder,current_filename_xlsx)
+          previous_filepath_xlsx <- file.path("temporal/fibrosis",previous_folder,previous_filename_xlsx)
+        }
+      }else if(input$direction_dropdown_temporal == "Only Upregulated"){
+        if(is.null(previous_time)){
+          current_filename_xlsx <- paste0(current_time,"_",input$category_dropdown_temporal,"_","up.xlsx")
+          current_filepath_xlsx <- file.path("temporal/fibrosis",current_folder,current_filename_xlsx)
+        }else{
+          current_filename_xlsx <-  paste0(current_time,"_",input$category_dropdown_temporal,"_","up.xlsx")
+          previous_filename_xlsx <-  paste0(previous_time,"_",input$category_dropdown_temporal,"_","up.xlsx")
+          current_filepath_xlsx <- file.path("temporal/fibrosis",current_folder,current_filename_xlsx)
+          previous_filepath_xlsx <- file.path("temporal/fibrosis",previous_folder,previous_filename_xlsx)
+        }
+      }else{
+        if(is.null(previous_time)){
+          current_filename_xlsx <- paste0(current_time,"_",input$category_dropdown_temporal,"_","down.xlsx")
+          current_filepath_xlsx <- file.path("temporal/fibrosis",current_folder,current_filename_xlsx)
+        }else{
+          current_filename_xlsx <-  paste0(current_time,"_",input$category_dropdown_temporal,"_","down.xlsx")
+          previous_filename_xlsx <-  paste0(previous_time,"_",input$category_dropdown_temporal,"_","down.xlsx")
+          current_filepath_xlsx <- file.path("temporal/fibrosis",current_folder,current_filename_xlsx)
+          previous_filepath_xlsx <- file.path("temporal/fibrosis",previous_folder,previous_filename_xlsx)
+        }
+      } 
+    }
+    
+    if (file.exists(current_filepath_xlsx)) {
+      current_df_xlsx <- read_xlsx(current_filepath_xlsx)
+      current_df_xlsx$comparison <- current_time
+    }else{
+      current_df_xlsx <- NULL
+    }
+    
+    if(!is.null(previous_time)){
+    if (file.exists(previous_filepath_xlsx)){
+      previous_df_xlsx <- read_xlsx(previous_filepath_xlsx)
+      previous_df_xlsx$comparison <- previous_time
+    }else{
+      previous_df_xlsx <- NULL
+    }
+    }else{
+      previous_df_xlsx <- NULL
+    }
+    
+    if(is.null(current_df_xlsx) & is.null(previous_df_xlsx)){
+      validate(need(FALSE, paste("No file found for", input$category_dropdown_temporal)))
+      return(NULL)  # never actually reached because validate() stops
+    }
+    
+    df_list <- list(current_df_xlsx, previous_df_xlsx)
+    df_list <- df_list[!sapply(df_list, is.null)]  # remove NULLs
+    
+    if (length(df_list) > 0) {
+      df_xlsx <- bind_rows(df_list)
+    }
+    
+    df_xlsx <- df_xlsx %>%
+      filter(-log10(qvalue) >= input$qvalue_threshold_temporal) # Filter by threshold on -log10(qvalue)
+    
+    return(df_xlsx)
+  })
+  
+  
+  observeEvent(selected_data_temporal(), {
+    df <- selected_data_temporal() #get the current rds
+    if (is.null(df) || nrow(df) < 2) return() # return null if empty or 1 patheay
+    max_weight <- max(df$weight, na.rm = TRUE) #get the maximum overlap
+    updateSliderInput(
+      session,
+      inputId = "shared_gene_threshold_temporal",
+      min = 1,
+      max = max_weight, #update maximum of the shared gene slider to maximum current overlap.
+      value = min(3, max_weight)
+    )
+  })
+  
+  
+  output$temporal_net <- renderVisNetwork({
+    req(selected_data_temporal(),selected_data_temporal_xlsx()) ## require selected_data_top_score reactive value
+    edges <- selected_data_temporal() ## assign to a variable
+    df_temporal <- selected_data_temporal_xlsx() ## assign to a variable
+    df_temporal$gene_list <- strsplit(df_temporal$geneID, "/") ## seperate genes to get them as list
+    
+    if(input$metric_temporal == "NAFLD Activity Score"){
+      if(input$slider_temporal == "1"){
+        current_time <- "1_VS_0"
+        previous_time <- NULL
+        current_folder <- "first"
+        previous_folder <- NULL
+      }else if(input$slider_temporal == "2"){
+        current_time <- "2_VS_0"
+        previous_time <- "1_VS_0"
+        current_folder <- "second"
+        previous_folder <- "first"
+      }else if(input$slider_temporal == "3"){
+        current_time <- "3_VS_0"
+        previous_time <- "2_VS_0"
+        current_folder <- "third"
+        previous_folder <- "second"
+      }else{
+        current_time <- "4_VS_0"
+        previous_time <- "3_VS_0"
+        current_folder <- "fourth"
+        previous_folder <- "third"
+      }
+    }else{
+      if(input$slider_temporal == "F4"){
+        current_time <- "F4_VS_F0_F1"
+        previous_time <- "F3_VS_F0_F1"
+        current_folder <- "third"
+        previous_folder <- "second"
+      }else if(input$slider_temporal == "F3"){
+        current_time <- "F3_VS_F0_F1"
+        previous_time <- "F2_VS_F0_F1"
+        current_folder <- "second"
+        previous_folder <- "first"
+      }else{
+        current_time <- "F2_VS_F0_F1"
+        previous_time <- NULL
+        current_folder <- "first"
+        previous_folder <- NULL
+      }
+    }
+    
+    if(is.null(previous_time)){
+      edges <- edges[edges$comparison == current_time,]
+    }else{
+      edges <- edges[edges$comparison == current_time | edges$comparison == previous_time,]
+    }
+    
+    if (nrow(edges) < 2) {
+      showNotification("Not enough pathways to compute edges.", type = "warning")
+      return(NULL)
+    } #make sure there is enough data after filtering
+    
+    if (input$edge_filter_method_temporal == "Jaccard Index") {
+      edges$title <- paste0(
+        "Jaccard Index: ", round(edges$jaccard, 3),
+        "\nUpregulated: ", edges$up,
+        "\nDownregulated: ", edges$down
+      ) #titles for jaccard option
+    } else {
+      edges$title <- paste0(
+        edges$weight, " Shared genes",
+        "\nUpregulated: ", edges$up,
+        "\nDownregulated: ", edges$down
+      )
+    } #titles for shared gene option
+    
+    if (input$edge_filter_method_temporal == "Shared Genes") {
+      edges <- edges[edges$weight >= input$shared_gene_threshold_temporal, ]
+    } else if (input$edge_filter_method_temporal == "Jaccard Index") {
+      edges <- edges[edges$jaccard >= input$jaccard_threshold_temporal, ]
+    } #filterings forr edge cut methods
+    
+    df_temporal$qvalue[df_temporal$qvalue == 0] <- 1e-300 # Avoid log10(0)
+    
+    if (input$include_unconnected_nodes_temporal) {
+      used_ids <- unique(c(edges$from, edges$to))
+      df_temporal <- df_temporal[df_temporal$ID %in% used_ids, ]
+    } #if checkbox is checked there is no unconnected nodes (I know the name indicates opposite I will fix the naming but it works)
+    
+    df_temporal <- df_temporal %>%
+      arrange(desc(comparison == current_time)) %>%   # rows with "a" come first
+      distinct(ID, .keep_all = TRUE)         # keep first occurrence of each ID
+   
+     gene_counts <- lengths(df_temporal$gene_list)
+    node_sizes <- -log10(df_temporal$qvalue) #node size = log transformed q value
+    node_sizes_scaled <- scales::rescale(node_sizes, to = c(10, 40))  # adjust range if needed
+    
+    # Convert edge list to igraph for clustering
+    if (nrow(edges) > 0 && input$clustering_method_temporal != "No Clustering") {
+      edge_mat <- as.matrix(edges[, c("from", "to")])
+      g <- igraph::graph_from_edgelist(edge_mat, directed = FALSE)
+      
+      cluster_result <- switch(input$clustering_method_temporal,
+                               "Louvain" = igraph::cluster_louvain(g),
+                               "Edge Betweenness" = igraph::cluster_edge_betweenness(g),
+                               "Label Propagation" = igraph::cluster_label_prop(g))
+      
+      membership <- igraph::membership(cluster_result)
+      cluster_df <- data.frame(
+        id = names(membership),
+        group = paste0("Cluster ", membership),
+        stringsAsFactors = FALSE
+      )
+    } else {
+      if(nrow(df_temporal) > 0){
+      cluster_df <- data.frame(
+        id = df_temporal$ID,
+        group = "Unclustered",
+        stringsAsFactors = FALSE
+      )
+      }
+    }
+    
+    if(nrow(df_temporal) == 0){
+      return(NULL)
+    }
+    
+
+    
+    
+    network_nodes <- unique(data.frame(
+      id = df_temporal$ID,
+      label = df_temporal$ID,
+      size = node_sizes_scaled,
+      title = paste(gene_counts, "genes in pathway"),
+      color = NA,
+      stringsAsFactors = FALSE
+    )) #create network_nodes
+    
+    if(!is.null(previous_time)){
+      edges$color <- ifelse(edges$comparison == previous_time, "gray", edges$color)
+      edges <- edges %>%
+        rowwise() %>%
+        mutate(pair = paste(sort(c(from, to)), collapse = "_")) %>%
+        ungroup() %>%
+        group_by(pair) %>%
+        filter(!(color == "gray" & any(color != "gray"))) %>%  # drop gray if a non-gray version exists
+        ungroup() %>%
+        select(-pair)
+      ids_only_previous <- df_temporal %>%
+        group_by(ID) %>%
+        filter(all(comparison == previous_time)) %>%
+        pull(ID) %>%
+        unique()
+       network_nodes$color <- ifelse(network_nodes$id %in% ids_only_previous, "gray", NA)
+    }
+    network_nodes <- merge(network_nodes, cluster_df, by = "id", all.x = TRUE) #merge with clustering info previously obtained
+    
+    summary_table <- data.frame(
+      `Pathway ID` = network_nodes$id,
+      `Gene IDs` = df_temporal$geneID[match(network_nodes$id, df_temporal$ID)],
+      `Cluster Group` = network_nodes$group,
+      `q-value` = df_temporal$qvalue[match(network_nodes$id, df_temporal$ID)],
+      `-log10(q)` = node_sizes[match(network_nodes$id, df_temporal$ID)],
+      `Gene Count` = gene_counts[match(network_nodes$id, df_temporal$ID)],
+      stringsAsFactors = FALSE
+    ) #create the summary table
+    
+    # Save table for reuse in UI/download
+    summary_table_temporal(summary_table) #reactive
+    updateCheckboxInput(session, "enable_physics_temporal", value = TRUE) #checkbox updater when there is a new network
+    
+    if(input$previous_nodes){
+      edges <- edges[edges$color == "gray",]
+      network_nodes <- network_nodes[network_nodes$color == "gray",]
+      network_nodes <- na.omit(network_nodes)
+      edges <- edges[edges$from %in% network_nodes$id & edges$to %in% network_nodes$id,]
+      if(input$include_unconnected_nodes_temporal == TRUE){
+        network_nodes <- network_nodes[network_nodes$id %in% c(edges$from, edges$to),]
+      } #problem due to variable naming I know this seems counterintutitive will fix it!
+    }
+    
+    network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
+      visNodes(shape = "dot", size = "size") %>%
+      visEdges(smooth = FALSE) %>%
+      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, selectedBy = "group") %>%
+      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, manipulation = FALSE,selectedBy = "group") %>%
+      visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
+      visLayout(randomSeed = 123) %>%
+      visPhysics(
+        solver = "forceAtlas2Based",
+        forceAtlas2Based = list(
+          gravitationalConstant = -50,
+          centralGravity = 0.001,
+          springLength = 200,
+          springConstant = 0.02,
+          damping = 0.4,
+          avoidOverlap = 1
+        ),
+        stabilization = list(
+          enabled = TRUE,
+          iterations = 200
+        )
+      ) #visualizes the network including its properties (physics etc.)
+    
+    # Save for download
+    vis_network_temporal(network_object) #make network object reactive
+    
+    # Render to UI
+    network_object #visualizes the network
+  })
+  
+  observeEvent(input$enable_physics_temporal, {
+    visNetworkProxy("temporal_net") %>%
+      visPhysics(enabled = input$enable_physics_temporal)
+  }) #if checked stop motion
+  
+  observeEvent({
+    input$direction_dropdown_temporal
+    input$category_dropdown_temporal
+  }, {
+    # Reset q-value threshold to default (e.g., 1.3 means q < 0.05)
+    updateSliderInput(session, "qvalue_threshold_temporal", value = 5)
+    
+    # Reset edge filtering thresholds
+    updateSliderInput(session, "shared_gene_threshold_temporal", value = 3)
+    updateSliderInput(session, "jaccard_threshold_temporal", value = 0.2)
+    updateSliderInput(session, "score_threshold_temporal", value = 0)
+    
+    # Reset edge filter method
+    updateSelectInput(session, "edge_filter_method_temporal", selected = "Jaccard Index")
+    
+    # Reset clustering dropdown
+    updateSelectInput(session, "clustering_method_temporal", selected = "No Clustering")
+    
+    # Optionally reset include_unconnected_nodes
+    updateCheckboxInput(session, "include_unconnected_nodes_temporal", value = FALSE)
+    
+    updateCheckboxInput(session, "enable_physics_temporal", value = TRUE)
+    updateCheckboxInput(session, "previous_nodes", value = FALSE)
+    
+  }) #update everything to default when there is 
+  
+  # output$network_summary_top_score <- DT::renderDataTable({
+  #   req(summary_table_top_score())
+  #   
+  #   df <- summary_table_top_score()
+  #   df <- df[,-c(2,7)]
+  #   colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count")
+  #   colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+  #   
+  #   DT::datatable(
+  #     df,
+  #     options = list(
+  #       pageLength = 10,
+  #       autoWidth = TRUE,
+  #       columnDefs = list(
+  #         list(targets = 1, width = '200px', className = 'dt-wrap')
+  #       )
+  #     ),
+  #     rownames = FALSE,
+  #     escape = FALSE
+  #   ) %>% DT::formatStyle(
+  #     columns = 1,
+  #     `white-space` = "normal",
+  #     `word-wrap` = "break-word"
+  #   )
+  # }) #visualize table output below network
+  
+  # output$download_summary_top_score <- downloadHandler(
+  #   filename = function() {
+  #     paste0("Pathway_Summary_", Sys.Date(), ".xlsx")
+  #   },
+  #   content = function(file) {
+  #     df <- summary_table_top_score()
+  #     df <- df[,-c(2,7)]
+  #     colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count")
+  #     colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+  #     writexl::write_xlsx(df, file)
+  #   }
+  # ) #download the network clusterings etc. as a table.
+  # 
+  # output$download_network_top_score <- downloadHandler(
+  #   filename = function() {
+  #     paste0("TopScore_Network_", Sys.Date(), ".html")
+  #   },
+  #   content = function(file) {
+  #     temp_file <- tempfile(fileext = ".html")
+  #     visSave(vis_network_top_score(), file = temp_file, selfcontained = TRUE)
+  #     
+  #     html <- readLines(temp_file)
+  #     
+  #     style_block <- '<style>
+  #     html, body {
+  #       margin: 0;
+  #       padding: 0;
+  #       width: 100%;
+  #       height: 100%;
+  #       overflow: hidden;
+  #     }
+  #     #htmlwidget_container {
+  #       width: 100vw !important;
+  #       height: 100vh !important;
+  #       position: relative;
+  #     }
+  #     .vis-network {
+  #       width: 100% !important;
+  #       height: 100% !important;
+  #     }
+  #     .vis-manipulation,
+  #     .vis-navigation {
+  #       z-index: 9999 !important;
+  #       position: absolute !important;
+  #       top: 10px;
+  #       right: 10px;
+  #     }
+  #   </style>'
+  #     
+  #     head_index <- grep("<head>", html, fixed = TRUE)
+  #     if (length(head_index) > 0) {
+  #       html <- append(html, style_block, after = head_index)
+  #     }
+  #     
+  #     writeLines(html, file)
+  #   }
+  # ) #download network as html
   
   ################################# Sex-Related Networks
   summary_table_sex_aware <- reactiveVal(NULL) #reactive summary_table for the first tab
@@ -1205,6 +1883,50 @@ server <- function(input, output, session) {
     }
   ) #download network as html
   ############################################ Transcriptome Browser
+  
+  output$gene_table_browser_pretty <- renderReactable({
+    gene_table_browser_df <- if (input$metric_browser == "NAFLD Activity Score") scores else scores_fibrosis
+    gene_table_browser_df <- gene_table_browser_df[
+      gene_table_browser_df$Gene == input$selected_gene_browser, 
+      -ncol(gene_table_browser_df)
+    ]
+    
+    reactable(
+      gene_table_browser_df,
+      fullWidth = TRUE,
+      resizable  = TRUE,
+      bordered   = TRUE,
+      highlight  = TRUE,
+      searchable = FALSE,
+      pagination = TRUE,
+      defaultPageSize = 5,
+      # let columns expand; no maxWidth here
+      defaultColDef = colDef(minWidth = 90, align = "right", style = list(whiteSpace = "normal")),
+      columns = list(
+        gene = colDef(align = "left", sticky = "left", minWidth = 160, style = list(whiteSpace = "normal")),
+        global_upregulated             = colDef(name = "Up"),
+        global_downregulated           = colDef(name = "Down"),
+        individual_upregulated         = colDef(name = "Up"),
+        individual_downregulated       = colDef(name = "Down"),
+        regression_upregulated         = colDef(name = "Up"),
+        regression_downregulated       = colDef(name = "Down"),
+        GeneDiseasePattern_upregulated = colDef(name = "Up"),
+        GeneDiseasePattern_downregulated=colDef(name = "Down"),
+        total_upregulated              = colDef(name = "Up"),
+        total_downregulated            = colDef(name = "Down"),
+        total                          = colDef(name = "Total")
+      ),
+      columnGroups = list(
+        colGroup(name = "Global",               columns = c("global_upregulated","global_downregulated")),
+        colGroup(name = "Individual",           columns = c("individual_upregulated","individual_downregulated")),
+        colGroup(name = "Regression",           columns = c("regression_upregulated","regression_downregulated")),
+        colGroup(name = "Gene–Disease Pattern", columns = c("GeneDiseasePattern_upregulated","GeneDiseasePattern_downregulated")),
+        colGroup(name = "Total",                columns = c("total_upregulated","total_downregulated"))
+      )
+    )
+  })
+  
+  
   gse_ids <- c("GSE135251","GSE193066","GSE225740","GSE130970",
                "GSE192959","GSE207310","GSE162694","GSE174478","GSE185051")
 
@@ -1672,7 +2394,10 @@ long_logfc <- reactive({
 dot_df <- reactive({
   req(long_logfc(), genes_uploaded())
   gs <- genes_uploaded()
-  
+  print(gs)
+  if(length(gs) > 20){
+    showNotification("Recommended amount of genes is 20 for this plot!", type = "message")
+  }
   # Keep only requested genes; set factor to enforce the y order
   long_logfc() |>
     filter(Gene %in% gs) |>
@@ -1748,8 +2473,7 @@ output$gene_logfc_dotplot <- renderPlotly({
   
   # make height depend on #genes (about 28px per gene, with padding)
   n_genes <- length(levels(df$Gene))
-  h <- max(350, 28 * n_genes + 140)
-  
+  h <- max(350, 28 * n_genes + 250)
   ggplotly(p, tooltip = c("y","x","colour","size")) %>%
     layout(legend = list(orientation = "v"), height = h)
 })
