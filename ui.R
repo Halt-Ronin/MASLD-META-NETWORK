@@ -13,7 +13,7 @@ library(shinyjs)
 
 ui <- fluidPage(
   tags$head(
-    tags$title("NAFLD META NETWORK"),
+    tags$title("MASLD META NETWORK"),
     tags$style(HTML("
       body {
         background-color: #f9f9f9;
@@ -233,7 +233,7 @@ ui <- fluidPage(
             fileInput(
               inputId = "gene_logfc_input_process_gene",
               label = "Choose a CSV file",
-              accept = c(".csv")  # restrict to CSVs
+              accept = c(".csv",".txt")  
             ),
             uiOutput("concordance_ui"),
             div(
@@ -464,7 +464,8 @@ ui <- fluidPage(
                      multiple = FALSE,
                      options = list(placeholder = "Type a gene symbol…")
                    ),
-                   fileInput("gene_txt", "Upload gene list to create dotplot (.txt)", accept = c(".txt"))
+                   fileInput("gene_txt", "Upload gene list to create dotplot (.txt)", accept = c(".txt")),
+                   uiOutput("concordance_ui_browser")
                ),
                mainPanel(
                  fluidRow(

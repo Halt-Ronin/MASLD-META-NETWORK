@@ -452,15 +452,29 @@ server <- function(input, output, session) {
   
   user_data_process_gene <- reactive({
     req(input$gene_logfc_input_process_gene)  # wait until user uploads
-    read.csv(input$gene_logfc_input_process_gene$datapath)  # read the uploaded file
+    file <- input$gene_logfc_input_process_gene$datapath
+    name <- input$gene_logfc_input_process_gene$name
+    
+    # get extension after last dot
+    ext <- tolower(sub(".*\\.", "", name))
+    
+    if (ext == "csv") {
+      df <- read.csv(file, stringsAsFactors = FALSE)
+    } else if (ext == "txt") {
+      df <- read.table(file, header = FALSE)
+    } else {
+      validate("Unsupported file type. Please upload .csv or .txt")
+    }
   })
   
   output$concordance_ui <- renderUI({
     req(input$gene_logfc_input_process_gene)
-    div(
-      style = "text-align: center;",
-      checkboxInput("concordance_process_gene", "Concordance filtering using logFC values", value = FALSE)
-    )
+    if(ncol(user_data_process_gene()) == 2){
+      div(
+        style = "text-align: center;",
+        checkboxInput("concordance_process_gene", "Concordance filtering using logFC values", value = FALSE)
+      )
+    }
   })
   
   df_process_gene <- reactive({
@@ -583,21 +597,17 @@ server <- function(input, output, session) {
         if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
         }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
           user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
         }
       }else{
         if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
         }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
           user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
         }
       }
       
@@ -755,21 +765,17 @@ server <- function(input, output, session) {
         if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
         }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
           user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
         }
       }else{
         if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Mus musculus input detected and turned into Homo sapiens!", type = "message")
         }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
           user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-          showNotification("Zebrafish input detected and turned into Homo sapiens!", type = "message")
         }
       }
       
@@ -2351,8 +2357,33 @@ genes_uploaded <- reactive({
   x <- readLines(input$gene_txt$datapath, warn = FALSE, encoding = "UTF-8")
   x <- trimws(x)
   x <- x[nzchar(x)]
-  # unique() preserves first appearance -> keeps user order
   unique(x)
+  if(input$metric_browser == "NAFLD Activity Score"){
+    if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+      user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% x,]$`Mouse Symbol`
+      x <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% x,]$`Search Term`
+    }else if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+      user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% x,]$`Zebrafish Symbol`
+      x <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% x,]$`Search Term`
+    }
+  }else{
+    if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+      user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% x,]$`Mouse Symbol`
+      x <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% x,]$`Search Term`
+    }else if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+      user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% x,]$`Zebrafish Symbol`
+      x <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% x,]$`Search Term`
+    }
+  }
+  x
+})
+
+output$concordance_ui_browser <- renderUI({
+  req(input$gene_txt)
+    div(
+      style = "text-align: center;",
+      checkboxInput("concordance_gene_browser", "Include only top scoring genes", value = TRUE)
+    )
 })
 
 # 2) Gather available contrasts (skip missing objects)
@@ -2394,6 +2425,19 @@ long_logfc <- reactive({
 dot_df <- reactive({
   req(long_logfc(), genes_uploaded())
   gs <- genes_uploaded()
+  if(!is.null(input$concordance_gene_browser) && isTRUE(input$concordance_gene_browser)){
+    if(input$metric_browser == "NAFLD Activity Score"){
+      gene_scores <- scores
+      cutoff <- quantile(gene_scores$total, 0.95)
+      gene_scores <- gene_scores[gene_scores$total >= cutoff,]$Gene
+      gs <- gs[gs %in% gene_scores]
+    }else if(input$metric_browser == "Fibrosis Stage"){
+      gene_scores <- scores_fibrosis
+      cutoff <- quantile(gene_scores$total, 0.95)
+      gene_scores <- gene_scores[gene_scores$total >= cutoff,]$Gene
+      gs <- gs[gs %in% gene_scores]
+    }
+  }
   print(gs)
   if(length(gs) > 20){
     showNotification("Recommended amount of genes is 20 for this plot!", type = "message")
