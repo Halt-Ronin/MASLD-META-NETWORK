@@ -1,3 +1,5 @@
+# Packages
+
 library(shiny)
 library(visNetwork)
 library(dplyr)
@@ -16,12 +18,18 @@ library(reactable)
 
 server <- function(input, output, session) {
   
-  scores <- read_xlsx("overall_meta_analysis_overview_directions.xlsx") #load scores for each gene
-  scores_fibrosis <- read_xlsx("overall_meta_analysis_overview_directions_fibrosis.xlsx") #load scores for each gene - fibrosis
+  # Data load 
+  
+  scores <- read_xlsx("overall_meta_analysis_overview_directions.xlsx")
+  scores_fibrosis <- read_xlsx("overall_meta_analysis_overview_directions_fibrosis.xlsx") 
   orthologs_mouse_fibrosis <- read_xlsx("fibrosis_top_score_mouse.xlsx")
   orthologs_mouse_nas <- read_xlsx("nas_top_score_mouse.xlsx")
   orthologs_zebrafish_fibrosis <- read_xlsx("fibrosis_top_score_zebrafish.xlsx")
   orthologs_zebrafish_nas <- read_xlsx("nas_top_score_zebrafish.xlsx")
+  string_nas <- read_xlsx("string_edges_detailed_nas.xlsx")
+  string_fibrosis <-  read_xlsx("string_edges_detailed_fibrosis.xlsx")
+  tcga_nas <-  read_xlsx("nas_tcga.xlsx")
+  tcga_fibrosis <-  read_xlsx("fibrosis_tcga.xlsx")
   ################################################ Top-Score Over Representation Analysis ###########################
   
   summary_table_top_score <- reactiveVal(NULL) #reactive summary_table for the first tab
@@ -437,6 +445,8 @@ server <- function(input, output, session) {
   
   
   ################################################ Process-Gene #########################
+  vis_network_process_gene <- reactiveVal(NULL) #reactive for downloading network as HTML
+  
   
   observe({
     req(input$qvalue_threshold_top_score)
@@ -448,7 +458,7 @@ server <- function(input, output, session) {
       max = 10,
       value = input$qvalue_threshold_top_score
     )
-  })
+  }) #get the qvalue slider values from the previous tab
   
   user_data_process_gene <- reactive({
     req(input$gene_logfc_input_process_gene)  # wait until user uploads
@@ -465,7 +475,7 @@ server <- function(input, output, session) {
     } else {
       validate("Unsupported file type. Please upload .csv or .txt")
     }
-  })
+  }) #user gene list uploader
   
   output$concordance_ui <- renderUI({
     req(input$gene_logfc_input_process_gene)
@@ -475,7 +485,7 @@ server <- function(input, output, session) {
         checkboxInput("concordance_process_gene", "Concordance filtering using logFC values", value = FALSE)
       )
     }
-  })
+  }) # show concordance UI if it is not only a gene list
   
   df_process_gene <- reactive({
     if (#input$direction_dropdown_process_gene == "Use Clustering from Top-Score Tab" &&
@@ -874,24 +884,36 @@ server <- function(input, output, session) {
       nodes <- bind_rows(gene_nodes, process_nodes)
     }
     
-    gene_summary_table_process_gene <- gene_nodes %>%
-      select(
-        Gene = id,
-        total,
-        total_upregulated,
-        total_downregulated,
-        centrality,
-        combined_score
-      ) %>%
-      arrange(desc(combined_score))
+    gene_summary_table_process_gene <- reactive({
+      gene_nodes %>%
+        select(
+          Gene = id,
+          total,
+          total_upregulated,
+          total_downregulated,
+          centrality,
+          combined_score
+        ) %>%
+        arrange(desc(combined_score))
+    })
     
     output$gene_table_process_gene <- renderDataTable({
-      gene_summary_table_process_gene
+      gene_summary_table_process_gene()
     })
+    
+    output$download_summary_process_gene <- downloadHandler(
+      filename = function() {
+        paste0("Process_Gene_Summary_", Sys.Date(), ".xlsx")
+      },
+      content = function(file) {
+        df <- isolate(gene_summary_table_process_gene())
+        writexl::write_xlsx(df, file)
+      }
+    )
     
     updateCheckboxInput(session, "enable_physics_process_gene", value = TRUE) #checkbox updater when there is a new network
     
-    visNetwork(nodes, edges_formatted) %>%
+    network_object <- visNetwork(nodes, edges_formatted) %>%
       visNodes(shape = "dot", size = "size") %>%
       visEdges(smooth = FALSE) %>%
       visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
@@ -913,12 +935,483 @@ server <- function(input, output, session) {
         )
       )
     
+    vis_network_process_gene(network_object) #make network object reactive
+    
+    network_object
   })
   
   observeEvent(input$enable_physics_process_gene, {
     visNetworkProxy("network_process_gene") %>%
       visPhysics(enabled = input$enable_physics_process_gene)
   }) #if checked stop motion
+  
+  output$download_network_process_gene <- downloadHandler(
+    filename = function() {
+      paste0("Process_Gene_Network_", Sys.Date(), ".html")
+    },
+    content = function(file) {
+      temp_file <- tempfile(fileext = ".html")
+      visSave(vis_network_process_gene(), file = temp_file, selfcontained = TRUE)
+      
+      html <- readLines(temp_file)
+      
+      # Updated CSS block targeting standard htmlwidget classes
+      style_block <- '<style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+      /* Override the hardcoded inline styles from htmlwidgets */
+      .html-widget, .visNetwork {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: absolute !important;
+        top: 0;
+        left: 0;
+      }
+      /* Ensure the inner vis.js canvas fills the new 100vw/vh container */
+      .vis-network {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .vis-manipulation,
+      .vis-navigation {
+        z-index: 9999 !important;
+        position: absolute !important;
+        top: 10px;
+        right: 10px;
+      }
+    </style>'
+      
+      head_index <- grep("<head>", html, fixed = TRUE)
+      if (length(head_index) > 0) {
+        html <- append(html, style_block, after = head_index)
+      }
+      
+      writeLines(html, file)
+    }
+  )
+  
+  ################################################ STRING ###########################
+  
+  summary_table_string <- reactiveVal(NULL) #reactive summary_table for the first tab
+  vis_network_string <- reactiveVal(NULL) #reactive for downloading network as HTML
+  
+  user_data_string<- reactive({
+    req(input$gene_logfc_input_string)  # wait until user uploads
+    file <- input$gene_logfc_input_string$datapath
+    name <- input$gene_logfc_input_string$name
+    
+    # get extension after last dot
+    ext <- tolower(sub(".*\\.", "", name))
+    
+    if (ext == "csv") {
+      df <- read.csv(file, stringsAsFactors = FALSE)
+    } else if (ext == "txt") {
+      df <- read.table(file, header = FALSE)
+    } else {
+      validate("Unsupported file type. Please upload .csv or .txt")
+    }
+  })
+  
+  output$concordance_ui_string <- renderUI({
+    req(input$gene_logfc_input_string)
+    if(ncol(user_data_string()) == 2){
+      div(
+        style = "text-align: center;",
+        checkboxInput("concordance_string", "Concordance filtering using logFC values", value = FALSE)
+      )
+    }
+  })
+  
+  
+  output$string_network <- renderVisNetwork({
+    
+    if(input$string_top_score == "NAFLD Activity Score"){
+      edges_string <- string_nas
+    }else if(input$string_top_score == "Fibrosis Stage"){
+      edges_string <- string_fibrosis
+    }
+    
+    edges_string <- edges_string[
+      edges_string$combined_score >= input$string_combined_score,
+    ]
+    
+    if(input$toggle_advanced %% 2 == 1){
+      edges_string <- edges_string[
+        (edges_string$neighborhood >= input$neighborhood &
+        edges_string$fusion >= input$fusion &
+        edges_string$cooccurence >= input$cooccurence &
+        edges_string$coexpression >= input$coexpression &
+        edges_string$experimental >= input$experimental &
+        edges_string$database >= input$database &
+        edges_string$textmining >= input$textmining),
+      ]
+    }
+    
+    if(input$pubmed_string == TRUE){
+      if(input$string_top_score == "NAFLD Activity Score"){
+        genes_remove <- tcga_nas[tcga_nas$pubmed_mentioned == TRUE,]$Gene
+      }else if(input$string_top_score == "Fibrosis Stage"){
+        genes_remove <- tcga_fibrosis[tcga_fibrosis$pubmed_mentioned == TRUE,]$Gene
+      }
+      edges_string <- edges_string[
+        !(edges_string$from_gene %in% genes_remove |
+            edges_string$to_gene %in% genes_remove),
+      ]
+    }
+    
+    if(input$string_direction == "Only Upregulated"){
+      if(input$string_top_score == "NAFLD Activity Score"){
+        genes_keep <- tcga_nas[as.numeric(tcga_nas$total_upregulated) > as.numeric(tcga_nas$total_downregulated),]$Gene
+        edges_string <- edges_string[
+          (edges_string$from_gene %in% genes_keep &
+              edges_string$to_gene %in% genes_keep),
+        ]
+      }else if(input$string_top_score == "Fibrosis Stage"){
+        genes_keep <- tcga_fibrosis[as.numeric(tcga_fibrosis$total_upregulated) > as.numeric(tcga_fibrosis$total_downregulated),]$Gene
+        edges_string <- edges_string[
+          (edges_string$from_gene %in% genes_keep &
+             edges_string$to_gene %in% genes_keep),
+        ]
+      }
+    }else if(input$string_direction == "Only Downregulated"){
+      if(input$string_top_score == "NAFLD Activity Score"){
+        genes_keep <- tcga_nas[as.numeric(tcga_nas$total_downregulated) > as.numeric(tcga_nas$total_upregulated),]$Gene
+        edges_string <- edges_string[
+          (edges_string$from_gene %in% genes_keep &
+             edges_string$to_gene %in% genes_keep),
+        ]
+      }else if(input$string_top_score == "Fibrosis Stage"){
+        genes_keep <- tcga_fibrosis[as.numeric(tcga_fibrosis$total_downregulated) > as.numeric(tcga_fibrosis$total_upregulated),]$Gene
+        edges_string <- edges_string[
+          (edges_string$from_gene %in% genes_keep &
+             edges_string$to_gene %in% genes_keep),
+        ]
+      }
+    }
+    
+    if(input$string_top_score == "NAFLD Activity Score"){
+      genes_remove <- tcga_nas[as.numeric(tcga_nas$total) < input$string_total_score,]$Gene
+      edges_string <- edges_string[
+        !(edges_string$from_gene %in% genes_remove |
+            edges_string$to_gene %in% genes_remove),
+      ]
+    }else if(input$string_top_score == "Fibrosis Stage"){
+      genes_remove <- tcga_fibrosis[as.numeric(tcga_fibrosis$total) < input$string_total_score,]$Gene
+      edges_string <- edges_string[
+        !(edges_string$from_gene %in% genes_remove |
+            edges_string$to_gene %in% genes_remove),
+      ]
+    }
+    
+    
+    if (nrow(edges_string) < 2) {
+      showNotification("Not enough genes to compute edges.", type = "warning")
+      return(NULL)
+    } #make sure there is enough data after filtering
+    
+    if(input$string_top_score == "NAFLD Activity Score"){
+      edges_meta <- scores[scores$Gene %in% c(edges_string$from_gene,edges_string$to_gene),]
+    }else if(input$string_top_score == "Fibrosis Stage"){
+      edges_meta <- scores_fibrosis[scores_fibrosis$Gene %in% c(edges_string$from_gene,edges_string$to_gene),]
+    }
+    
+    edges <- edges_string[, c("from_gene", "to_gene","combined_score")]
+    colnames(edges) <- c("from", "to","weight")
+    
+    edges$width <- scales::rescale(
+      log(edges$weight),
+      to = c(1,8)
+    )
+    
+    edges$title <- paste0(
+    "Combined Score: ", edges$weight
+    ) 
+    
+    g_string <- igraph::graph_from_data_frame(as.matrix(edges), directed = FALSE)
+    
+    centrality_scores <- switch(
+      input$centrality_method_string,
+      "Degree" = degree(g_string),
+      "Closeness" = closeness(g_string, normalized = TRUE),
+      "Betweenness" = betweenness(g_string, normalized = TRUE),
+      "PageRank" = page_rank(g_string)$vector
+    )
+    centrality_df_string <- data.frame(id = names(centrality_scores), centrality = as.numeric(centrality_scores))
+    
+    network_nodes <- data.frame(
+      id = unique(c(edges$from, edges$to)),
+      label = unique(c(edges$from, edges$to)),
+      stringsAsFactors = FALSE
+    )
+    
+    network_nodes <- merge(network_nodes, centrality_df_string, by = "id", all.x = TRUE)
+    
+    
+    network_nodes <- merge(
+      network_nodes,
+      edges_meta[, c("Gene", "total", "total_upregulated", "total_downregulated")],
+      by.x = "id",
+      by.y = "Gene",
+      all.x = TRUE
+    )
+    
+    total_min <- min(network_nodes$total, na.rm = TRUE) #minimum total score in existing genes
+    total_max <- max(network_nodes$total, na.rm = TRUE) #maximum total score in existing genes
+    centrality_min <- min(network_nodes$centrality, na.rm = TRUE) #minimum centrality score in existing genes
+    centrality_max <- max(network_nodes$centrality, na.rm = TRUE) #maximum centrality score in existing genes
+    total_range <- total_max - total_min # range of total score
+    centrality_range <- centrality_max - centrality_min # range of centrality score
+    
+    network_nodes %>% mutate(
+      total = replace_na(total, 0),
+      centrality = replace_na(centrality, 0))
+
+    network_nodes$total_norm <- if (total_range == 0) 0 else (network_nodes$total - total_min) / total_range
+    network_nodes$centrality_norm <- if (centrality_range == 0) 0 else (network_nodes$centrality - centrality_min) / centrality_range
+    network_nodes$combined_score <- input$weight_total_string * network_nodes$total_norm + (1 - input$weight_total_string) * network_nodes$centrality_norm
+      
+    network_nodes <- network_nodes[network_nodes$combined_score >= input$threshold_string,]
+
+    network_nodes$size <- scales::rescale(
+      network_nodes$total,
+      to = c(10, 40)
+    )
+    
+    network_nodes$color <- ifelse(
+      network_nodes$total_upregulated > network_nodes$total_downregulated,
+      "green",   # green
+      ifelse(
+        network_nodes$total_downregulated > network_nodes$total_upregulated,
+        "red", 
+        "gray"  # gray
+      )
+    )
+    
+    
+    
+    # Convert edge list to igraph for clustering
+    if (input$clustering_method_string != "No Clustering") {
+      
+      cluster_result <- switch(
+        input$clustering_method_string,
+        "Louvain" = igraph::cluster_louvain(g_string),
+        "Edge Betweenness" = igraph::cluster_edge_betweenness(g_string),
+        "Label Propagation" = igraph::cluster_label_prop(g_string)
+      )
+      
+      membership <- igraph::membership(cluster_result)
+      
+      cluster_df <- data.frame(
+        id = names(membership),
+        group = paste0("Cluster ", membership),
+        stringsAsFactors = FALSE
+      )
+      
+      network_nodes <- merge(network_nodes, cluster_df, by = "id", all.x = TRUE)
+      
+    } else {
+      network_nodes$group <- "No cluster"
+    }
+    
+    network_nodes <- na.omit(network_nodes)
+    
+    user_genes <- NULL
+    if (!is.null(input$gene_logfc_input_string)) {
+      user_genes <- tryCatch({
+        x <- user_data_string()[[1]]         # first column
+        x <- as.character(x)
+        x <- trimws(x)
+        unique(x[!is.na(x) & nzchar(x)])
+      }, error = function(e) NULL)
+    } ## get user genes
+    
+    if(input$string_top_score == "NAFLD Activity Score"){
+      if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+        user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
+        user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
+      }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+        user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
+        user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
+      }
+    }else{
+      if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+        user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
+        user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
+      }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+        user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
+        user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
+      }
+    }
+    
+    if (!is.null(user_genes)){
+      network_nodes <- network_nodes[network_nodes$id %in% user_genes,]
+    } 
+     
+    
+    if(!is.null(input$concordance_string) && isTRUE(input$concordance_string)){
+      user_data <- user_data_string()
+      user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
+      user_genes_up <- user_data[user_data[[2]] > 0,1]
+      user_genes_down <- user_data[user_data[[2]] < 0,1]
+      if(input$string_top_score == "NAFLD Activity Score"){
+        if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+          user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+          user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+          user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
+          user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
+        }
+      }else{
+        if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+          user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+          user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+          user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
+          user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
+        }
+      }
+      network_nodes <- network_nodes[(network_nodes$color == "green" & network_nodes$id %in% user_genes_up) | (network_nodes$color == "red" & network_nodes$id %in% user_genes_down),]
+    }
+    
+    
+    summary_df_string <- data.frame(
+      `Gene Name` = network_nodes$id,
+      `Total Score` = network_nodes$total,
+      `Degree` = network_nodes$centrality,
+      `Combined Score` = network_nodes$combined_score,
+      `Cluster Group` = network_nodes$group,
+      stringsAsFactors = FALSE
+    ) #create the summary table
+    
+    # Save table for reuse in UI/download
+    summary_table_string(summary_df_string) #reactive
+    
+    
+    updateCheckboxInput(session, "enable_physics_string", value = TRUE) #checkbox updater when there is a new network
+    
+    
+    network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
+      visNodes(shape = "dot", size = "size") %>%
+      visEdges(smooth = FALSE) %>%
+      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, selectedBy = "group") %>%
+      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, manipulation = FALSE,selectedBy = "group") %>%
+      visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
+      visLayout(randomSeed = 123) %>%
+      visPhysics(
+        solver = "forceAtlas2Based",
+        forceAtlas2Based = list(
+          gravitationalConstant = -50,
+          centralGravity = 0.001,
+          springLength = 200,
+          springConstant = 0.02,
+          damping = 0.4,
+          avoidOverlap = 1
+        ),
+        stabilization = list(
+          enabled = TRUE,
+          iterations = 200
+        )
+      ) #visualizes the network including its properties (physics etc.)
+    
+    # Save for download
+    vis_network_string(network_object) #make network object reactive
+    
+    # Render to UI
+    network_object #visualizes the network
+  })  
+  
+  observeEvent(input$enable_physics_string, {
+    visNetworkProxy("string_network") %>%
+      visPhysics(enabled = input$enable_physics_string)
+  }) #if checked stop motion
+  
+  
+  output$network_summary_string <- DT::renderDataTable({
+    req(summary_table_string())
+    
+    df <- summary_table_string()
+    colnames(df) <- c("Gene Name", "Total Score", "Degree", "Combined Score","Cluster Group")
+    # colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+    
+    DT::datatable(
+      df,
+      options = list(
+        pageLength = 10,
+        autoWidth = TRUE,
+        columnDefs = list(
+          list(targets = 1, width = '200px', className = 'dt-wrap')
+        )
+      ),
+      rownames = FALSE,
+      escape = FALSE
+    ) %>% DT::formatStyle(
+      columns = 1,
+      `white-space` = "normal",
+      `word-wrap` = "break-word"
+    )
+  }) #visualize table output below network
+  
+  output$download_summary_string <- downloadHandler(
+    filename = function() {
+      paste0("Pathway_Summary_STRING", Sys.Date(), ".xlsx")
+    },
+    content = function(file) {
+      df <- summary_table_string()
+      colnames(df) <- c("Gene Name", "Total Score", "Degree", "Combined Score","Cluster Group")
+      colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+      writexl::write_xlsx(df, file)
+    }
+  ) #download the network clusterings etc. as a table.
+  
+  output$download_network_string <- downloadHandler(
+    filename = function() {
+      paste0("STRING_Network_", Sys.Date(), ".html")
+    },
+    content = function(file) {
+      temp_file <- tempfile(fileext = ".html")
+      visSave(vis_network_string(), file = temp_file, selfcontained = TRUE)
+      
+      html <- readLines(temp_file)
+      
+      style_block <- '<style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      #htmlwidget_container {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: relative;
+      }
+      .vis-network {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .vis-manipulation,
+      .vis-navigation {
+        z-index: 9999 !important;
+        position: absolute !important;
+        top: 10px;
+        right: 10px;
+      }
+    </style>'
+      
+      head_index <- grep("<head>", html, fixed = TRUE)
+      if (length(head_index) > 0) {
+        html <- append(html, style_block, after = head_index)
+      }
+      
+      writeLines(html, file)
+    }
+  ) #download network as html
   
   ############################### Stage-Dependent Networks
   
@@ -1259,8 +1752,6 @@ server <- function(input, output, session) {
       return(NULL)
     }
     
-
-    
     
     network_nodes <- unique(data.frame(
       id = df_temporal$ID,
@@ -1289,17 +1780,32 @@ server <- function(input, output, session) {
        network_nodes$color <- ifelse(network_nodes$id %in% ids_only_previous, "gray", NA)
     }
     network_nodes <- merge(network_nodes, cluster_df, by = "id", all.x = TRUE) #merge with clustering info previously obtained
-    
-    summary_table <- data.frame(
-      `Pathway ID` = network_nodes$id,
-      `Gene IDs` = df_temporal$geneID[match(network_nodes$id, df_temporal$ID)],
-      `Cluster Group` = network_nodes$group,
-      `q-value` = df_temporal$qvalue[match(network_nodes$id, df_temporal$ID)],
-      `-log10(q)` = node_sizes[match(network_nodes$id, df_temporal$ID)],
-      `Gene Count` = gene_counts[match(network_nodes$id, df_temporal$ID)],
-      stringsAsFactors = FALSE
-    ) #create the summary table
-    
+    network_nodes <- network_nodes %>%
+      mutate(`Lost Node` = color == "gray")
+    View(network_nodes)
+    if(!is.null(previous_time)){
+      network_nodes
+      summary_table <- data.frame(
+        `Pathway ID` = network_nodes$id,
+        `Gene IDs` = df_temporal$geneID[match(network_nodes$id, df_temporal$ID)],
+        `Cluster Group` = network_nodes$group,
+        `q-value` = df_temporal$qvalue[match(network_nodes$id, df_temporal$ID)],
+        `-log10(q)` = node_sizes[match(network_nodes$id, df_temporal$ID)],
+        `Gene Count` = gene_counts[match(network_nodes$id, df_temporal$ID)],
+        `Lost Node` = network_nodes$`Lost Node`,
+        stringsAsFactors = FALSE
+      ) #create the summary table
+    }else{
+      summary_table <- data.frame(
+        `Pathway ID` = network_nodes$id,
+        `Gene IDs` = df_temporal$geneID[match(network_nodes$id, df_temporal$ID)],
+        `Cluster Group` = network_nodes$group,
+        `q-value` = df_temporal$qvalue[match(network_nodes$id, df_temporal$ID)],
+        `-log10(q)` = node_sizes[match(network_nodes$id, df_temporal$ID)],
+        `Gene Count` = gene_counts[match(network_nodes$id, df_temporal$ID)],
+        stringsAsFactors = FALSE
+      ) #create the summary table
+    }
     # Save table for reuse in UI/download
     summary_table_temporal(summary_table) #reactive
     updateCheckboxInput(session, "enable_physics_temporal", value = TRUE) #checkbox updater when there is a new network
@@ -1375,89 +1881,103 @@ server <- function(input, output, session) {
     
   }) #update everything to default when there is 
   
-  # output$network_summary_top_score <- DT::renderDataTable({
-  #   req(summary_table_top_score())
-  #   
-  #   df <- summary_table_top_score()
-  #   df <- df[,-c(2,7)]
-  #   colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count")
-  #   colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
-  #   
-  #   DT::datatable(
-  #     df,
-  #     options = list(
-  #       pageLength = 10,
-  #       autoWidth = TRUE,
-  #       columnDefs = list(
-  #         list(targets = 1, width = '200px', className = 'dt-wrap')
-  #       )
-  #     ),
-  #     rownames = FALSE,
-  #     escape = FALSE
-  #   ) %>% DT::formatStyle(
-  #     columns = 1,
-  #     `white-space` = "normal",
-  #     `word-wrap` = "break-word"
-  #   )
-  # }) #visualize table output below network
+  output$network_summary_temporal <- DT::renderDataTable({
+    req(summary_table_temporal())
+    
+    df <- summary_table_temporal()
+    if(ncol(df) == 6){
+      df <- df[,-c(2)]
+      colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count")
+      colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+    }else{
+      df <- df[,-c(2)]
+      colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count","Lost Node")
+      colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+    }
+    
+    DT::datatable(
+      df,
+      options = list(
+        pageLength = 10,
+        autoWidth = TRUE,
+        columnDefs = list(
+          list(targets = 1, width = '200px', className = 'dt-wrap')
+        )
+      ),
+      rownames = FALSE,
+      escape = FALSE
+    ) %>% DT::formatStyle(
+      columns = 1,
+      `white-space` = "normal",
+      `word-wrap` = "break-word"
+    )
+  }) #visualize table output below network
   
-  # output$download_summary_top_score <- downloadHandler(
-  #   filename = function() {
-  #     paste0("Pathway_Summary_", Sys.Date(), ".xlsx")
-  #   },
-  #   content = function(file) {
-  #     df <- summary_table_top_score()
-  #     df <- df[,-c(2,7)]
-  #     colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count")
-  #     colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
-  #     writexl::write_xlsx(df, file)
-  #   }
-  # ) #download the network clusterings etc. as a table.
-  # 
-  # output$download_network_top_score <- downloadHandler(
-  #   filename = function() {
-  #     paste0("TopScore_Network_", Sys.Date(), ".html")
-  #   },
-  #   content = function(file) {
-  #     temp_file <- tempfile(fileext = ".html")
-  #     visSave(vis_network_top_score(), file = temp_file, selfcontained = TRUE)
-  #     
-  #     html <- readLines(temp_file)
-  #     
-  #     style_block <- '<style>
-  #     html, body {
-  #       margin: 0;
-  #       padding: 0;
-  #       width: 100%;
-  #       height: 100%;
-  #       overflow: hidden;
-  #     }
-  #     #htmlwidget_container {
-  #       width: 100vw !important;
-  #       height: 100vh !important;
-  #       position: relative;
-  #     }
-  #     .vis-network {
-  #       width: 100% !important;
-  #       height: 100% !important;
-  #     }
-  #     .vis-manipulation,
-  #     .vis-navigation {
-  #       z-index: 9999 !important;
-  #       position: absolute !important;
-  #       top: 10px;
-  #       right: 10px;
-  #     }
-  #   </style>'
-  #     
-  #     head_index <- grep("<head>", html, fixed = TRUE)
-  #     if (length(head_index) > 0) {
-  #       html <- append(html, style_block, after = head_index)
-  #     }
-  #     
-  #     writeLines(html, file)
-  #   }
-  # ) #download network as html
+  output$download_summary_temporal <- downloadHandler(
+    filename = function() {
+      paste0("Pathway_Summary_Temporal", Sys.Date(), ".xlsx")
+    },
+    content = function(file) {
+      df <- summary_table_temporal()
+      if(ncol(df) == 6){
+        df <- df[,-c(2)]
+        colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count")
+        colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+      }else{
+        df <- df[,-c(2)]
+        colnames(df) <- c("Pathway ID", "Cluster Group", "q-value", "-log10(q)", "Gene Count","Lost Node")
+        colnames(df) <- gsub("\\.", " ", colnames(df))  # Fix column names for display
+      }
+      writexl::write_xlsx(df, file)
+    }
+  ) #download the network clusterings etc. as a table.
+  
+  output$download_network_temporal <- downloadHandler(
+    filename = function() {
+      paste0("Temporal_", Sys.Date(), ".html")
+    },
+    content = function(file) {
+      temp_file <- tempfile(fileext = ".html")
+      visSave(vis_network_temporal(), file = temp_file, selfcontained = TRUE)
+      
+      html <- readLines(temp_file)
+      
+      style_block <- '<style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      #htmlwidget_container {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: relative;
+      }
+      .vis-network {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .vis-manipulation,
+      .vis-navigation {
+        z-index: 9999 !important;
+        position: absolute !important;
+        top: 10px;
+        right: 10px;
+      }
+    </style>'
+      
+      head_index <- grep("<head>", html, fixed = TRUE)
+      if (length(head_index) > 0) {
+        html <- append(html, style_block, after = head_index)
+      }
+      
+      writeLines(html, file)
+    }
+  ) #download network as html
+  
+  
   
   ################################# Sex-Related Networks
   summary_table_sex_aware <- reactiveVal(NULL) #reactive summary_table for the first tab

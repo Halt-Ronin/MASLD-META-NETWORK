@@ -190,7 +190,7 @@ ui <- fluidPage(
                  checkboxInput(
                    inputId = "include_unconnected_nodes_top_score",
                    label = "Keep only connected nodes",
-                   value = FALSE  # or FALSE if you want it off by default
+                   value = FALSE  
                  ), 
                  checkboxInput(
                    inputId = "enable_physics_top_score",
@@ -232,7 +232,7 @@ ui <- fluidPage(
                         min = 0, max = 1, value = 0),
             fileInput(
               inputId = "gene_logfc_input_process_gene",
-              label = "Choose a CSV file",
+              label = "Choose a CSV or TXT file",
               accept = c(".csv",".txt")  
             ),
             uiOutput("concordance_ui"),
@@ -249,10 +249,97 @@ ui <- fluidPage(
         mainPanel(
           visNetworkOutput("network_process_gene", height = "800px"),
           hr(),
-          dataTableOutput("gene_table_process_gene")
+          dataTableOutput("gene_table_process_gene"),
+          downloadButton("download_summary_process_gene", "Download Summary Table (XLSX)"),
+          downloadButton("download_network_process_gene", "Download Network as HTML")
         )
       )
     ),
+    tabPanel("STRING",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput(
+                   inputId = "string_top_score",
+                   label = "Histological Scoring System:",
+                   choices = c("NAFLD Activity Score","Fibrosis Stage"),
+                   selected = "NAFLD Activity Score"
+                 ),
+                 selectInput("string_direction", "Include:",
+                             choices = c("All","Only Upregulated","Only Downregulated"),
+                             selected = "All"),
+                 sliderInput(
+                   inputId = "string_combined_score",
+                   label = "STRING Combined Score",
+                   min = 0.400,   
+                   max = 0.999,   
+                   value = 0.4,
+                   step = 0.01
+                 ),
+                 sliderInput(
+                   inputId = "string_total_score",
+                   label = "Meta Analysis Score",
+                   min = 10,   
+                   max = 26,   
+                   value = 10,
+                   step = 1
+                 ),
+                 selectInput("centrality_method_string", "Select Centrality Method:",
+                             choices = c("Degree","Closeness","Betweenness","PageRank"),
+                             selected = "Degree"),
+                 sliderInput("weight_total_string", "Weight for total score:",
+                             min = 0, max = 1, value = 0.5),
+                 sliderInput("threshold_string", "Show genes with combined score above:",
+                             min = 0, max = 1, value = 0),
+                 fileInput(
+                   inputId = "gene_logfc_input_string",
+                   label = "Choose a CSV or TXT file",
+                   accept = c(".csv",".txt")  
+                 ),
+                 uiOutput("concordance_ui_string"),
+                 selectInput("clustering_method_string", "Clustering Method:",
+                             choices = c("No Clustering", "Louvain", "Edge Betweenness", "Label Propagation"),
+                             selected = "No Clustering"),
+                 checkboxInput(
+                   inputId = "pubmed_string",
+                   label = "Exclude Genes with existing PubMed Results",
+                   value = FALSE
+                 ),
+                 checkboxInput(
+                   inputId = "enable_physics_string",
+                   label = "Enable network motion",
+                   value = TRUE
+                 ),
+                 
+                 hr(),
+                 
+                 actionButton(
+                   "toggle_advanced",
+                   "Advanced filters ▼"
+                 ),
+                 
+                 conditionalPanel(
+                   condition = "input.toggle_advanced % 2 == 1",
+                   
+                   sliderInput("neighborhood", "Neighborhood", 0, 0.356, 0, 0.01),
+                   sliderInput("fusion", "Fusion", 0, 0.9, 0, 0.01),
+                   sliderInput("cooccurence", "Cooccurance", 0, 0.535, 0, 0.01),
+                   sliderInput("coexpression", "Coexpression", 0, 0.999, 0, 0.01),
+                   sliderInput("experimental", "Experimental", 0, 0.999, 0, 0.01),
+                   sliderInput("database", "Database", 0, 0.983, 0, 0.01),
+                   sliderInput("textmining", "Text Mining", 0, 0.999, 0, 0.01)
+                 )
+               ),
+               mainPanel(
+                 visNetworkOutput("string_network", height = "800px"),
+                 div(
+                 style = "width: 100%; overflow-x: auto;",
+                 DT::dataTableOutput("network_summary_string")
+                ),
+                 downloadButton("download_summary_string", "Download Summary Table (XLSX)"),
+                 downloadButton("download_network_string", "Download Network as HTML")
+               )
+             )
+    ),  
     tabPanel(
       "Stage-Dependent Network",
       sidebarLayout(
@@ -335,7 +422,7 @@ ui <- fluidPage(
           checkboxInput(
             inputId = "include_unconnected_nodes_temporal",
             label = "Keep only connected nodes",
-            value = FALSE  # or FALSE if you want it off by default
+            value = FALSE 
           ), 
           checkboxInput(
             inputId = "enable_physics_temporal",
@@ -349,7 +436,13 @@ ui <- fluidPage(
           )
         ),
         mainPanel(
-          visNetworkOutput("temporal_net", height = "800px")
+          visNetworkOutput("temporal_net", height = "800px"),
+          div(
+            style = "width: 100%; overflow-x: auto;",
+            DT::dataTableOutput("network_summary_temporal")
+          ),
+          downloadButton("download_summary_temporal", "Download Summary Table (XLSX)"),
+          downloadButton("download_network_temporal", "Download Network as HTML")
         )
     )
     ),
@@ -429,7 +522,7 @@ ui <- fluidPage(
           checkboxInput(
             inputId = "include_unconnected_nodes_sex_aware",
             label = "Keep only connected nodes",
-            value = FALSE  # or FALSE if you want it off by default
+            value = FALSE 
           ), 
           checkboxInput(
             inputId = "enable_physics_sex_aware",
