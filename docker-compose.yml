@@ -1,0 +1,28 @@
+services:
+  masld:
+    build: .
+    image: masld-shiny:latest
+    restart: unless-stopped
+    volumes:
+      - ./:/app:ro
+    networks:
+      - web
+    mem_limit: 4g
+    healthcheck:
+      # rocker/shiny ships wget, not curl
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3838"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.masld.rule=Host(`masld.scilicium.com`)"
+      - "traefik.http.routers.masld.entrypoints=websecure"
+      - "traefik.http.routers.masld.tls=true"
+      - "traefik.http.routers.masld.tls.certresolver=letsencrypt"
+      - "traefik.http.services.masld.loadbalancer.server.port=3838"
+
+networks:
+  web:
+    external: true

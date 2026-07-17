@@ -1782,7 +1782,6 @@ server <- function(input, output, session) {
     network_nodes <- merge(network_nodes, cluster_df, by = "id", all.x = TRUE) #merge with clustering info previously obtained
     network_nodes <- network_nodes %>%
       mutate(`Lost Node` = color == "gray")
-    View(network_nodes)
     if(!is.null(previous_time)){
       network_nodes
       summary_table <- data.frame(
