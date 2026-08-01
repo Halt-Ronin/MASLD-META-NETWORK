@@ -30,10 +30,95 @@ server <- function(input, output, session) {
   string_fibrosis <-  read_xlsx("string_edges_detailed_fibrosis.xlsx")
   tcga_nas <-  read_xlsx("nas_tcga.xlsx")
   tcga_fibrosis <-  read_xlsx("fibrosis_tcga.xlsx")
+
+  # words that mean "this first line is a header, not a gene"
+  gene_header_words <- c("gene", "genes", "symbol", "symbols", "gene_symbol",
+                         "gene symbol", "mapped_gene", "mapped gene", "id", "x")
+
+  # Reads an uploaded gene list (.csv or .txt) and works out on its own whether the
+  # first line is a header. Without this, .csv files without a header lose their first
+  # gene (read.csv assumes header = TRUE) and .txt files with a header keep the header
+  # as a gene and read the logFC column as text (read.table assumed header = FALSE).
+  read_user_gene_file <- function(path, name) {
+    ext <- tolower(sub(".*\\.", "", name))
+    validate(need(ext %in% c("csv", "txt"), "Unsupported file type. Please upload .csv or .txt"))
+    sep <- if (ext == "csv") "," else ""
+
+    first <- read.table(path, sep = sep, nrows = 1, header = FALSE,
+                        stringsAsFactors = FALSE, quote = "\"", comment.char = "")
+    has_header <- if (ncol(first) >= 2) {
+      # a header row has a non-numeric second column (e.g. "logFC")
+      is.na(suppressWarnings(as.numeric(first[[2]][1])))
+    } else {
+      tolower(trimws(as.character(first[[1]][1]))) %in% gene_header_words
+    }
+
+    df <- read.table(path, sep = sep, header = has_header,
+                     stringsAsFactors = FALSE, quote = "\"", comment.char = "")
+    df[[1]] <- trimws(as.character(df[[1]]))
+    if (ncol(df) >= 2) df[[2]] <- suppressWarnings(as.numeric(df[[2]]))
+    df <- df[!is.na(df[[1]]) & nzchar(df[[1]]), , drop = FALSE]
+    validate(need(nrow(df) > 0, "No gene found in the uploaded file."))
+    df
+  }
+
+  # Guesses which species the uploaded symbols belong to and translates them into the
+  # human symbols the app displays. `reference_hits` is how many uploaded symbols are
+  # already present in the human data being shown: the switch to an ortholog table only
+  # fires when that table matches *more* symbols than that. Without this guard a single
+  # coincidence is enough to flip a human list (a few mouse symbols are spelled exactly
+  # like human ones: C2/F11 for NAS, C3/C7/F3 for Fibrosis) and the whole list is then
+  # replaced by that one gene.
+  resolve_user_species <- function(user_genes, metric, reference_hits) {
+    if (metric == "NAFLD Activity Score") {
+      ortho_mouse <- orthologs_mouse_nas
+      ortho_fish  <- orthologs_zebrafish_nas
+    } else {
+      ortho_mouse <- orthologs_mouse_fibrosis
+      ortho_fish  <- orthologs_zebrafish_fibrosis
+    }
+    mouse_hits <- sum(user_genes %in% ortho_mouse$`Mouse Symbol`)
+    fish_hits  <- sum(user_genes %in% ortho_fish$`Zebrafish Symbol`)
+
+    if (mouse_hits > reference_hits & fish_hits == 0) {
+      keep <- ortho_mouse$`Mouse Symbol` %in% user_genes
+      list(species = "mouse", table = ortho_mouse, key = "Mouse Symbol",
+           original = ortho_mouse$`Mouse Symbol`[keep],
+           genes    = ortho_mouse$`Search Term`[keep])
+    } else if (mouse_hits == 0 & fish_hits > reference_hits) {
+      keep <- ortho_fish$`Zebrafish Symbol` %in% user_genes
+      list(species = "zebrafish", table = ortho_fish, key = "Zebrafish Symbol",
+           original = ortho_fish$`Zebrafish Symbol`[keep],
+           genes    = ortho_fish$`Search Term`[keep])
+    } else {
+      # human list (or no upload at all): nothing to translate
+      list(species = "human", table = NULL, key = NULL,
+           original = user_genes, genes = user_genes)
+    }
+  }
+
+  # Translates uploaded symbols into human symbols using an already resolved species.
+  # Identity for human lists.
+  translate_user_genes <- function(genes, species_info) {
+    if (is.null(species_info$table)) return(genes)
+    species_info$table$`Search Term`[species_info$table[[species_info$key]] %in% genes]
+  }
+
+  # Short recap shown under each upload widget so the user can see what was actually kept.
+  upload_summary_msg <- function(n_uploaded, species, n_kept) {
+    if (!n_uploaded) return("")
+    sprintf("Uploaded: %d genes | detected species: %s | kept: %d | not found here: %d",
+            n_uploaded, species, n_kept, n_uploaded - n_kept)
+  }
   ################################################ Top-Score Over Representation Analysis ###########################
   
   summary_table_top_score <- reactiveVal(NULL) #reactive summary_table for the first tab
   vis_network_top_score <- reactiveVal(NULL) #reactive for downloading network as HTML
+  upload_msg_process_gene <- reactiveVal("") #recap of the uploaded gene list, shown under the upload widget
+  upload_msg_string <- reactiveVal("")
+
+  output$upload_msg_process_gene <- renderText(upload_msg_process_gene())
+  output$upload_msg_string <- renderText(upload_msg_string())
   cluster_rename_map_top_score <- reactiveVal(list()) #reactive list for renaming clusters
   
   selected_data_top_score <- reactive({
@@ -464,17 +549,8 @@ server <- function(input, output, session) {
     req(input$gene_logfc_input_process_gene)  # wait until user uploads
     file <- input$gene_logfc_input_process_gene$datapath
     name <- input$gene_logfc_input_process_gene$name
-    
-    # get extension after last dot
-    ext <- tolower(sub(".*\\.", "", name))
-    
-    if (ext == "csv") {
-      df <- read.csv(file, stringsAsFactors = FALSE)
-    } else if (ext == "txt") {
-      df <- read.table(file, header = FALSE)
-    } else {
-      validate("Unsupported file type. Please upload .csv or .txt")
-    }
+
+    read_user_gene_file(file, name)
   }) #user gene list uploader
   
   output$concordance_ui <- renderUI({
@@ -602,25 +678,12 @@ server <- function(input, output, session) {
           unique(x[!is.na(x) & nzchar(x)])
         }, error = function(e) NULL)
       } ## get user genes
-      human_hits <- sum(user_genes %in% current_gene_ids)
-      if(input$metric_top_score == "NAFLD Activity Score"){
-        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-          user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
-          user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-          user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
-          user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
-        }
-      }else{
-        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-          user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
-          user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-          user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
-          user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }
-      }
-      
+      n_uploaded <- length(user_genes)
+      species_info <- resolve_user_species(user_genes, input$metric_top_score,
+                                           sum(user_genes %in% current_gene_ids))
+      user_genes_original_filtered <- species_info$original
+      user_genes <- species_info$genes
+
       gene_nodes <- data.frame(
         id = current_gene_ids,
         label = current_gene_ids,
@@ -658,27 +721,11 @@ server <- function(input, output, session) {
       if(!is.null(input$concordance_process_gene) && isTRUE(input$concordance_process_gene)){
         user_data <- user_data_process_gene()
         user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
-        user_genes_up <- user_data[user_data[[2]] > 0,1]
-        user_genes_down <- user_data[user_data[[2]] < 0,1]
-        if(input$metric_top_score == "NAFLD Activity Score"){
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-            user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-            user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
-          }
-        }else{
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-            user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-            user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }
-        }
+        user_genes_up <- translate_user_genes(user_data[user_data[[2]] > 0,1], species_info)
+        user_genes_down <- translate_user_genes(user_data[user_data[[2]] < 0,1], species_info)
         gene_nodes <- gene_nodes[(gene_nodes$color == "green" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "red" & gene_nodes$id %in% user_genes_down),]
       }
+      upload_msg_process_gene(upload_summary_msg(n_uploaded, species_info$species, nrow(gene_nodes)))
       
       output$gene_table_process_gene <- renderDataTable({
         gene_nodes %>%
@@ -769,26 +816,12 @@ server <- function(input, output, session) {
           unique(x[!is.na(x) & nzchar(x)])
         }, error = function(e) NULL)
       } ## get user genes
-      human_hits <- sum(user_genes %in% current_gene_ids)
-      
-      if(input$metric_top_score == "NAFLD Activity Score"){
-        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-          user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
-          user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-          user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
-          user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
-        }
-      }else{
-        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-          user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
-          user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-          user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
-          user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }
-      }
-      
+      n_uploaded <- length(user_genes)
+      species_info <- resolve_user_species(user_genes, input$metric_top_score,
+                                           sum(user_genes %in% current_gene_ids))
+      user_genes_original_filtered <- species_info$original
+      user_genes <- species_info$genes
+
       gene_nodes <- data.frame(
         id = current_gene_ids,
         label = current_gene_ids,
@@ -826,27 +859,11 @@ server <- function(input, output, session) {
       if(!is.null(input$concordance_process_gene) && isTRUE(input$concordance_process_gene)){
         user_data <- user_data_process_gene()
         user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
-        user_genes_up <- user_data[user_data[[2]] > 0,1]
-        user_genes_down <- user_data[user_data[[2]] < 0,1]
-        if(input$metric_top_score == "NAFLD Activity Score"){
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-            user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-            user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
-          }
-        }else{
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-            user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-            user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-            user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }
-        }
+        user_genes_up <- translate_user_genes(user_data[user_data[[2]] > 0,1], species_info)
+        user_genes_down <- translate_user_genes(user_data[user_data[[2]] < 0,1], species_info)
         gene_nodes <- gene_nodes[(gene_nodes$color == "green" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "red" & gene_nodes$id %in% user_genes_down),]
       }
+      upload_msg_process_gene(upload_summary_msg(n_uploaded, species_info$species, nrow(gene_nodes)))
       
       output$gene_table <- renderDataTable({
         gene_nodes %>%
@@ -1004,17 +1021,8 @@ server <- function(input, output, session) {
     req(input$gene_logfc_input_string)  # wait until user uploads
     file <- input$gene_logfc_input_string$datapath
     name <- input$gene_logfc_input_string$name
-    
-    # get extension after last dot
-    ext <- tolower(sub(".*\\.", "", name))
-    
-    if (ext == "csv") {
-      df <- read.csv(file, stringsAsFactors = FALSE)
-    } else if (ext == "txt") {
-      df <- read.table(file, header = FALSE)
-    } else {
-      validate("Unsupported file type. Please upload .csv or .txt")
-    }
+
+    read_user_gene_file(file, name)
   })
   
   output$concordance_ui_string <- renderUI({
@@ -1229,54 +1237,25 @@ server <- function(input, output, session) {
         unique(x[!is.na(x) & nzchar(x)])
       }, error = function(e) NULL)
     } ## get user genes
-    human_hits <- sum(network_nodes$id %in% user_genes)
-    if(input$string_top_score == "NAFLD Activity Score"){
-      if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-        user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
-        user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-      }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-        user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
-        user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
-      }
-    }else{
-      if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-        user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
-        user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-      }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-        user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
-        user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-      }
-    }
-    
+    n_uploaded <- length(user_genes)
+    species_info <- resolve_user_species(user_genes, input$string_top_score,
+                                         sum(user_genes %in% network_nodes$id))
+    user_genes_original_filtered <- species_info$original
+    user_genes <- species_info$genes
+
     if (!is.null(user_genes)){
       network_nodes <- network_nodes[network_nodes$id %in% user_genes,]
-    } 
-     
-    
+    }
+
+
     if(!is.null(input$concordance_string) && isTRUE(input$concordance_string)){
       user_data <- user_data_string()
       user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
-      user_genes_up <- user_data[user_data[[2]] > 0,1]
-      user_genes_down <- user_data[user_data[[2]] < 0,1]
-      if(input$string_top_score == "NAFLD Activity Score"){
-        if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-          user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-          user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-          user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
-          user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
-        }
-      }else{
-        if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-          user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-          user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-          user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
-          user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-        }
-      }
+      user_genes_up <- translate_user_genes(user_data[user_data[[2]] > 0,1], species_info)
+      user_genes_down <- translate_user_genes(user_data[user_data[[2]] < 0,1], species_info)
       network_nodes <- network_nodes[(network_nodes$color == "green" & network_nodes$id %in% user_genes_up) | (network_nodes$color == "red" & network_nodes$id %in% user_genes_down),]
     }
+    upload_msg_string(upload_summary_msg(n_uploaded, species_info$species, nrow(network_nodes)))
     
     
     summary_df_string <- data.frame(
@@ -2871,31 +2850,23 @@ indiv_F4_F0 <- indiv_F4_F0[indiv_F4_F0$DE.invnorm == 1 & indiv_F4_F0$DE.fisherco
 
 
 # 1) Read genes from .txt (keep order)
-genes_uploaded <- reactive({
+gene_upload_info_browser <- reactive({
   req(input$gene_txt)
   x <- readLines(input$gene_txt$datapath, warn = FALSE, encoding = "UTF-8")
   x <- trimws(x)
   x <- x[nzchar(x)]
-  unique(x)
-  human_hits <- sum(x %in% scores$Gene)
-  if(input$metric_browser == "NAFLD Activity Score"){
-    if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
-      user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% x,]$`Mouse Symbol`
-      x <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% x,]$`Search Term`
-    }else if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
-      user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% x,]$`Zebrafish Symbol`
-      x <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% x,]$`Search Term`
-    }
-  }else{
-    if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
-      user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% x,]$`Mouse Symbol`
-      x <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% x,]$`Search Term`
-    }else if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
-      user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% x,]$`Zebrafish Symbol`
-      x <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% x,]$`Search Term`
-    }
-  }
-  x
+  if(length(x) && tolower(x[1]) %in% gene_header_words) x <- x[-1] # drop a header line such as MAPPED_GENE
+  x <- unique(x)
+  n_uploaded <- length(x)
+
+  human_reference <- if(input$metric_browser == "NAFLD Activity Score") scores$Gene else scores_fibrosis$Gene
+  species_info <- resolve_user_species(x, input$metric_browser, sum(x %in% human_reference))
+
+  list(genes = unique(species_info$genes), species = species_info$species, n_uploaded = n_uploaded)
+})
+
+genes_uploaded <- reactive({
+  gene_upload_info_browser()$genes
 })
 
 output$concordance_ui_browser <- renderUI({
@@ -2973,13 +2944,13 @@ dot_df <- reactive({
 
 # 4) Missing gene report
 output$missing_genes_msg <- renderText({
-  req(genes_uploaded())
+  info <- gene_upload_info_browser()
   present <- unique(as.character(dot_df()$Gene))
-  missing <- setdiff(genes_uploaded(), present)
+  missing <- setdiff(info$genes, present)
+  msg <- upload_summary_msg(info$n_uploaded, info$species, length(present))
   if (length(missing)) {
-    paste0("Genes not found in our datasets: ",
-           paste(missing, collapse = ", "))
-  } else ""
+    paste0(msg, "\nGenes not found in our datasets: ", paste(missing, collapse = ", "))
+  } else msg
 })
 
 # 5) Dotplot (bubble plot): color = logFC, size = |logFC|

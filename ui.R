@@ -233,8 +233,10 @@ ui <- fluidPage(
             fileInput(
               inputId = "gene_logfc_input_process_gene",
               label = "Choose a CSV or TXT file",
-              accept = c(".csv",".txt")  
+              accept = c(".csv",".txt")
             ),
+            div(style = "font-size: 12px; color: #555; margin-bottom: 8px;",
+                textOutput("upload_msg_process_gene")),
             uiOutput("concordance_ui"),
             div(
               style = "text-align: center;",
@@ -293,8 +295,10 @@ ui <- fluidPage(
                  fileInput(
                    inputId = "gene_logfc_input_string",
                    label = "Choose a CSV or TXT file",
-                   accept = c(".csv",".txt")  
+                   accept = c(".csv",".txt")
                  ),
+                 div(style = "font-size: 12px; color: #555; margin-bottom: 8px;",
+                     textOutput("upload_msg_string")),
                  uiOutput("concordance_ui_string"),
                  selectInput("clustering_method_string", "Clustering Method:",
                              choices = c("No Clustering", "Louvain", "Edge Betweenness", "Label Propagation"),
@@ -558,6 +562,8 @@ ui <- fluidPage(
                      options = list(placeholder = "Type a gene symbol…")
                    ),
                    fileInput("gene_txt", "Upload gene list to create dotplot (.txt)", accept = c(".txt")),
+                   div(style = "font-size: 12px; color: #555; margin-bottom: 8px; white-space: pre-wrap;",
+                       textOutput("missing_genes_msg")),
                    uiOutput("concordance_ui_browser")
                ),
                mainPanel(
