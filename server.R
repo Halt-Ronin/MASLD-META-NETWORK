@@ -602,20 +602,20 @@ server <- function(input, output, session) {
           unique(x[!is.na(x) & nzchar(x)])
         }, error = function(e) NULL)
       } ## get user genes
-      
+      human_hits <- sum(user_genes %in% current_gene_ids)
       if(input$metric_top_score == "NAFLD Activity Score"){
-        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
           user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
         }
       }else{
-        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
           user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
         }
@@ -661,18 +661,18 @@ server <- function(input, output, session) {
         user_genes_up <- user_data[user_data[[2]] > 0,1]
         user_genes_down <- user_data[user_data[[2]] < 0,1]
         if(input$metric_top_score == "NAFLD Activity Score"){
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
             user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
             user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
           }
         }else{
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
             user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
             user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
           }
@@ -769,21 +769,21 @@ server <- function(input, output, session) {
           unique(x[!is.na(x) & nzchar(x)])
         }, error = function(e) NULL)
       } ## get user genes
-      
+      human_hits <- sum(user_genes %in% current_gene_ids)
       
       if(input$metric_top_score == "NAFLD Activity Score"){
-        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+        if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+        }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
           user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
         }
       }else{
-        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+        if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
           user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
           user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+        }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
           user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
           user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
         }
@@ -829,18 +829,18 @@ server <- function(input, output, session) {
         user_genes_up <- user_data[user_data[[2]] > 0,1]
         user_genes_down <- user_data[user_data[[2]] < 0,1]
         if(input$metric_top_score == "NAFLD Activity Score"){
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
             user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
             user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
           }
         }else{
-          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+          if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
             user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+          }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
             user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
             user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
           }
@@ -1229,20 +1229,20 @@ server <- function(input, output, session) {
         unique(x[!is.na(x) & nzchar(x)])
       }, error = function(e) NULL)
     } ## get user genes
-    
+    human_hits <- sum(network_nodes$id %in% user_genes)
     if(input$string_top_score == "NAFLD Activity Score"){
-      if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+      if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
         user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
         user_genes <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes,]$`Search Term`
-      }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+      }else if(sum(user_genes %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
         user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
         user_genes <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes,]$`Search Term`
       }
     }else{
-      if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+      if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
         user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Mouse Symbol`
         user_genes <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
-      }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+      }else if(sum(user_genes %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
         user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% user_genes,]$`Zebrafish Symbol`
         user_genes <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes,]$`Search Term`
       }
@@ -1259,18 +1259,18 @@ server <- function(input, output, session) {
       user_genes_up <- user_data[user_data[[2]] > 0,1]
       user_genes_down <- user_data[user_data[[2]] < 0,1]
       if(input$string_top_score == "NAFLD Activity Score"){
-        if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+        if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
           user_genes_up <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
           user_genes_down <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
           user_genes_up <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_up,]$`Search Term`
           user_genes_down <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% user_genes_down,]$`Search Term`
         }
       }else{
-        if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+        if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
           user_genes_up <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
           user_genes_down <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
-        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+        }else if(sum(user_genes_original_filtered %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(user_genes_original_filtered %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
           user_genes_up <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_up,]$`Search Term`
           user_genes_down <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% user_genes_down,]$`Search Term`
         }
@@ -2877,19 +2877,20 @@ genes_uploaded <- reactive({
   x <- trimws(x)
   x <- x[nzchar(x)]
   unique(x)
+  human_hits <- sum(x %in% scores$Gene)
   if(input$metric_browser == "NAFLD Activity Score"){
-    if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) > 0 & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
+    if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) > human_hits & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) == 0){
       user_genes_original_filtered <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% x,]$`Mouse Symbol`
       x <- orthologs_mouse_nas[orthologs_mouse_nas$`Mouse Symbol` %in% x,]$`Search Term`
-    }else if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > 0){
+    }else if(sum(x %in% orthologs_mouse_nas$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_nas$`Zebrafish Symbol`) > human_hits){
       user_genes_original_filtered <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% x,]$`Zebrafish Symbol`
       x <- orthologs_zebrafish_nas[orthologs_zebrafish_nas$`Zebrafish Symbol` %in% x,]$`Search Term`
     }
   }else{
-    if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > 0 & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
+    if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) > human_hits & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) == 0){
       user_genes_original_filtered <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% x,]$`Mouse Symbol`
       x <- orthologs_mouse_fibrosis[orthologs_mouse_fibrosis$`Mouse Symbol` %in% x,]$`Search Term`
-    }else if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > 0){
+    }else if(sum(x %in% orthologs_mouse_fibrosis$`Mouse Symbol`) == 0 & sum(x %in% orthologs_zebrafish_fibrosis$`Zebrafish Symbol`) > human_hits){
       user_genes_original_filtered <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Zebrafish Symbol` %in% x,]$`Zebrafish Symbol`
       x <- orthologs_zebrafish_fibrosis[orthologs_zebrafish_fibrosis$`Mouse Symbol` %in% x,]$`Search Term`
     }
@@ -2965,7 +2966,7 @@ dot_df <- reactive({
   long_logfc() |>
     filter(Gene %in% gs) |>
     mutate(
-      Gene = factor(Gene, levels = gs),
+      Gene = factor(Gene, levels =  unique(gs)),
       abs_logFC = abs(logFC)
     )
 })
