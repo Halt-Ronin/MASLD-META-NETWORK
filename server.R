@@ -501,9 +501,8 @@ server <- function(input, output, session) {
     
     edges$color = ifelse( edges$color == 'green', "#D55E00", "#0072B2")
     network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
-      visNodes(shape = "dot", size = "size") %>%
+      visNodes(shape = "dot") %>%
       visEdges(smooth = FALSE) %>%
-      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, selectedBy = "group") %>%
       visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, manipulation = FALSE,selectedBy = "group") %>%
       visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
       visLayout(randomSeed = 123) %>%
@@ -1112,7 +1111,7 @@ server <- function(input, output, session) {
     updateCheckboxInput(session, "enable_physics_process_gene", value = TRUE) #checkbox updater when there is a new network
     
     network_object <- visNetwork(nodes, edges_formatted) %>%
-      visNodes(shape = "dot", size = "size") %>%
+      visNodes(shape = "dot") %>%
       visEdges(smooth = FALSE) %>%
       visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE) %>%
       visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
@@ -1455,9 +1454,8 @@ server <- function(input, output, session) {
     
     
     network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
-      visNodes(shape = "dot", size = "size") %>%
+      visNodes(shape = "dot") %>%
       visEdges(smooth = FALSE) %>%
-      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, selectedBy = "group") %>%
       visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, manipulation = FALSE,selectedBy = "group") %>%
       visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
       visLayout(randomSeed = 123) %>%
@@ -1986,9 +1984,8 @@ server <- function(input, output, session) {
       )
     )    
     network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
-      visNodes(shape = "dot", size = "size") %>%
+      visNodes(shape = "dot") %>%
       visEdges(smooth = FALSE) %>%
-      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, selectedBy = "group") %>%
       visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, manipulation = FALSE,selectedBy = "group") %>%
       visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
       visLayout(randomSeed = 123) %>%
@@ -2456,9 +2453,7 @@ server <- function(input, output, session) {
     
     
     network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
-      visNodes(size = "size") %>%
       visEdges(smooth = FALSE) %>%
-      visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, selectedBy = "group") %>%
       visOptions(highlightNearest = TRUE, nodesIdSelection = TRUE, manipulation = FALSE,selectedBy = "group") %>%
       visInteraction(dragView = TRUE, zoomView = TRUE, navigationButtons = TRUE) %>%
       visLayout(randomSeed = 123) %>%
