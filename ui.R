@@ -624,22 +624,21 @@ ui <- fluidPage(
                            ",
                      uiOutput("gene_logfc_dotplot_ui")
                    )
+                 ),
+
+                 tags$details(
+                   tags$summary(tags$h3("Clustered Gene List Heatmap")),
+                   tags$hr(),
+                   div(
+                     style = "
+                            max-height: 700px;
+                            overflow-y: auto;
+                            overflow-x: hidden;
+                            width: 100%;
+                           ",
+                     uiOutput("gene_logfc_heatmap_ui")
+                   )
                  )
-                 # ),
-                 # tags$details(
-                 #   tags$summary(tags$h3("Clustered Gene List Heatmap")),
-                 #   tags$hr(),
-                 #   
-                 #   div(
-                 #     style = "
-                 #            max-height: 700px;
-                 #            overflow-y: auto;
-                 #            overflow-x: hidden;
-                 #            width: 100%;
-                 #          ",
-                 #     uiOutput("gene_logfc_heatmap_ui")
-                 #   )
-                 # )
                )
              )   
     )

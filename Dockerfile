@@ -28,6 +28,13 @@ RUN R -e "pkgs <- c( \
   if (length(missing)) stop('Failed to install: ', paste(missing, collapse=', ')); \
   cat('All R packages installed successfully\n')"
 
+# heatmaply drives the clustered gene-list heatmap in the Transcriptome Browser.
+# Kept in its own layer: appending it to the list above would invalidate that
+# layer and recompile tidyverse from source on every rebuild.
+RUN R -e "install.packages('heatmaply', repos='https://cran.r-project.org/', Ncpus=parallel::detectCores()); \
+  if (!'heatmaply' %in% rownames(installed.packages())) stop('Failed to install: heatmaply'); \
+  cat('heatmaply installed successfully\n')"
+
 # App is mounted as a volume at runtime — no COPY needed
 EXPOSE 3838
 
