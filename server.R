@@ -14,7 +14,6 @@ library(scales)
 library(plotly)
 library(DT)
 library(reactable)
-library(heatmaply)
 
 
 server <- function(input, output, session) {
