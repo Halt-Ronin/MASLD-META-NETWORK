@@ -186,7 +186,17 @@ ui <- fluidPage(
                  selectInput("clustering_method_top_score", "Clustering Method:",
                              choices = c("No Clustering", "Louvain", "Edge Betweenness", "Label Propagation"),
                              selected = "No Clustering"),
+                 # fileInput(
+                 #   inputId = "cluster_input_top_score",
+                 #   label = "Choose a CSV or xlsx",
+                 #   accept = c(".csv",".xlsx")  
+                 # ),
                  actionButton("open_cluster_rename_modal", "Rename Clusters"),
+                 checkboxInput(
+                   inputId = "use_paper_data_top_score",
+                   label = "Use Paper Settings",
+                   value = FALSE  
+                 ), 
                  checkboxInput(
                    inputId = "include_unconnected_nodes_top_score",
                    label = "Keep only connected nodes",
@@ -233,10 +243,8 @@ ui <- fluidPage(
             fileInput(
               inputId = "gene_logfc_input_process_gene",
               label = "Choose a CSV or TXT file",
-              accept = c(".csv",".txt")
+              accept = c(".csv",".txt")  
             ),
-            div(style = "font-size: 12px; color: #555; margin-bottom: 8px;",
-                textOutput("upload_msg_process_gene")),
             uiOutput("concordance_ui"),
             div(
               style = "text-align: center;",
@@ -295,19 +303,17 @@ ui <- fluidPage(
                  fileInput(
                    inputId = "gene_logfc_input_string",
                    label = "Choose a CSV or TXT file",
-                   accept = c(".csv",".txt")
+                   accept = c(".csv",".txt")  
                  ),
-                 div(style = "font-size: 12px; color: #555; margin-bottom: 8px;",
-                     textOutput("upload_msg_string")),
                  uiOutput("concordance_ui_string"),
                  selectInput("clustering_method_string", "Clustering Method:",
                              choices = c("No Clustering", "Louvain", "Edge Betweenness", "Label Propagation"),
                              selected = "No Clustering"),
-                 checkboxInput(
-                   inputId = "pubmed_string",
-                   label = "Exclude Genes with existing PubMed Results",
-                   value = FALSE
-                 ),
+                 # checkboxInput(
+                 #   inputId = "pubmed_string",
+                 #   label = "Exclude Genes with existing PubMed Results",
+                 #   value = FALSE
+                 # ),
                  checkboxInput(
                    inputId = "enable_physics_string",
                    label = "Enable network motion",
@@ -562,8 +568,6 @@ ui <- fluidPage(
                      options = list(placeholder = "Type a gene symbol…")
                    ),
                    fileInput("gene_txt", "Upload gene list to create dotplot (.txt)", accept = c(".txt")),
-                   div(style = "font-size: 12px; color: #555; margin-bottom: 8px; white-space: pre-wrap;",
-                       textOutput("missing_genes_msg")),
                    uiOutput("concordance_ui_browser")
                ),
                mainPanel(
@@ -607,10 +611,35 @@ ui <- fluidPage(
                  ),
                  
                  tags$details(
-                   tags$summary(tags$h3("Gene List Dotplot")),
+                   tags$summary(
+                     tags$h3("Gene List Dotplot")
+                   ),
                    tags$hr(),
-                   plotlyOutput("gene_logfc_dotplot", height = "600px")
+                   div(
+                     style = "
+                            max-height: 700px;
+                            overflow-y: auto;
+                            overflow-x: hidden;
+                            width: 100%;
+                           ",
+                     uiOutput("gene_logfc_dotplot_ui")
+                   )
                  )
+                 # ),
+                 # tags$details(
+                 #   tags$summary(tags$h3("Clustered Gene List Heatmap")),
+                 #   tags$hr(),
+                 #   
+                 #   div(
+                 #     style = "
+                 #            max-height: 700px;
+                 #            overflow-y: auto;
+                 #            overflow-x: hidden;
+                 #            width: 100%;
+                 #          ",
+                 #     uiOutput("gene_logfc_heatmap_ui")
+                 #   )
+                 # )
                )
              )   
     )

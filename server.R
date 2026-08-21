@@ -14,6 +14,7 @@ library(scales)
 library(plotly)
 library(DT)
 library(reactable)
+library(heatmaply)
 
 
 server <- function(input, output, session) {
@@ -26,6 +27,14 @@ server <- function(input, output, session) {
   orthologs_mouse_nas <- read_xlsx("nas_top_score_mouse.xlsx")
   orthologs_zebrafish_fibrosis <- read_xlsx("fibrosis_top_score_zebrafish.xlsx")
   orthologs_zebrafish_nas <- read_xlsx("nas_top_score_zebrafish.xlsx")
+  orthologs_mouse_fibrosis <- orthologs_mouse_fibrosis %>%
+    rename(`Mouse Symbol` = `Output Gene Symbol`)
+  orthologs_mouse_nas <- orthologs_mouse_nas %>%
+    rename(`Mouse Symbol` = `Output Gene Symbol`)
+  orthologs_zebrafish_fibrosis <- orthologs_zebrafish_fibrosis %>%
+    rename(`Zebrafish Symbol` = `Output Gene Symbol`)
+  orthologs_zebrafish_nas <- orthologs_zebrafish_nas %>%
+    rename(`Zebrafish Symbol` = `Output Gene Symbol`)
   string_nas <- read_xlsx("string_edges_detailed_nas.xlsx")
   string_fibrosis <-  read_xlsx("string_edges_detailed_fibrosis.xlsx")
   tcga_nas <-  read_xlsx("nas_tcga.xlsx")
@@ -120,6 +129,49 @@ server <- function(input, output, session) {
   output$upload_msg_process_gene <- renderText(upload_msg_process_gene())
   output$upload_msg_string <- renderText(upload_msg_string())
   cluster_rename_map_top_score <- reactiveVal(list()) #reactive list for renaming clusters
+  
+  observeEvent(input$use_paper_data_top_score, {
+    
+    # Only apply paper settings when checkbox is checked
+    if (isTRUE(input$use_paper_data_top_score)) {
+      
+      updateSelectInput(
+        session,
+        "clustering_method_top_score",
+        selected = "Louvain"
+      )
+      
+      updateSelectInput(
+        session,
+        "direction_dropdown_top_score",
+        selected = "All Genes"
+      )
+      
+      updateSelectInput(
+        session,
+        "category_dropdown_top_score",
+        selected = "C5"
+      )
+      
+      updateSliderInput(
+        session,
+        "qvalue_threshold_top_score",
+        value = 1.3
+      )
+      
+      updateSelectInput(
+        session,
+        "edge_filter_method_top_score",
+        selected = "Jaccard Index"
+      )
+      
+      updateSliderInput(
+        session,
+        "jaccard_threshold_top_score",
+        value = 0.2
+      )
+    }
+  })
   
   selected_data_top_score <- reactive({
     req(input$category_dropdown_top_score, selected_data_top_score_xlsx()) ## require category_dropdown_top_score from the dropdown menu 
@@ -262,24 +314,136 @@ server <- function(input, output, session) {
     node_sizes <- -log10(df_top_score$qvalue) #node size = log transformed q value
     node_sizes_scaled <- scales::rescale(node_sizes, to = c(10, 40))  # adjust range if needed
     
-    # Convert edge list to igraph for clustering
+    # ============================================================
+    # CLUSTERING
+    # ============================================================
+    
     if (nrow(edges) > 0 && input$clustering_method_top_score != "No Clustering") {
-      edge_mat <- as.matrix(edges[, c("from", "to")])
-      g <- igraph::graph_from_edgelist(edge_mat, directed = FALSE)
       
-      cluster_result <- switch(input$clustering_method_top_score,
-                               "Louvain" = igraph::cluster_louvain(g),
-                               "Edge Betweenness" = igraph::cluster_edge_betweenness(g),
-                               "Label Propagation" = igraph::cluster_label_prop(g))
+      # ----------------------------------------------------------
+      # PAPER CLUSTERING
+      #
+      # When the paper preset button has been clicked, the UI still
+      # displays "Louvain", but the previously curated clustering
+      # from the paper is used instead of recalculating Louvain.
+      # ----------------------------------------------------------
       
-      membership <- igraph::membership(cluster_result)
-      cluster_df <- data.frame(
-        id = names(membership),
-        group = paste0("Cluster ", membership),
-        stringsAsFactors = FALSE
-      )
+      if (
+        isTRUE(input$use_paper_data_top_score) &&
+        input$clustering_method_top_score == "Louvain"
+      ) {
+        
+        # Select clustering file according to histological score
+        if (input$metric_top_score == "NAFLD Activity Score") {
+          
+          paper_cluster_file <- file.path(
+            "paper_clustering",
+            "NAS_top_score.xlsx"
+          )
+          
+        } else {
+          
+          paper_cluster_file <- file.path(
+            "paper_clustering",
+            "fibrosis_top_score.xlsx"
+          )
+        }
+        
+        # Make sure file exists
+        validate(
+          need(
+            file.exists(paper_cluster_file),
+            paste("Paper clustering file not found:", paper_cluster_file)
+          )
+        )
+        
+        # Read clustering generated for the paper
+        paper_clusters <- readxl::read_xlsx(
+          paper_cluster_file
+        )
+        
+        # Make sure required columns exist
+        validate(
+          need(
+            all(c("Pathway ID", "Cluster Group") %in% colnames(paper_clusters)),
+            "Paper clustering file must contain 'Pathway ID' and 'Cluster Group' columns."
+          )
+        )
+        
+        # Keep only pathway ID and its predefined paper cluster
+        cluster_df <- paper_clusters %>%
+          dplyr::transmute(
+            id = as.character(`Pathway ID`),
+            group = as.character(`Cluster Group`)
+          ) %>%
+          dplyr::distinct(id, .keep_all = TRUE)
+        
+        # Only retain pathways present in the current network
+        cluster_df <- cluster_df %>%
+          dplyr::filter(id %in% df_top_score$ID)
+        
+        # Add any pathway that is unexpectedly absent from the
+        # paper clustering file as "Unclustered"
+        missing_ids <- setdiff(
+          df_top_score$ID,
+          cluster_df$id
+        )
+        
+        if (length(missing_ids) > 0) {
+          
+          cluster_df <- dplyr::bind_rows(
+            cluster_df,
+            data.frame(
+              id = missing_ids,
+              group = "Unclustered",
+              stringsAsFactors = FALSE
+            )
+          )
+        }
+        
+      } else {
+        
+        # --------------------------------------------------------
+        # NORMAL APP CLUSTERING
+        # --------------------------------------------------------
+        
+        edge_mat <- as.matrix(
+          edges[, c("from", "to")]
+        )
+        
+        g <- igraph::graph_from_edgelist(
+          edge_mat,
+          directed = FALSE
+        )
+        
+        cluster_result <- switch(
+          input$clustering_method_top_score,
+          
+          "Louvain" =
+            igraph::cluster_louvain(g),
+          
+          "Edge Betweenness" =
+            igraph::cluster_edge_betweenness(g),
+          
+          "Label Propagation" =
+            igraph::cluster_label_prop(g)
+        )
+        
+        membership <- igraph::membership(
+          cluster_result
+        )
+        
+        cluster_df <- data.frame(
+          id = names(membership),
+          group = paste0("Cluster ", membership),
+          stringsAsFactors = FALSE
+        )
+      }
+      
     } else {
-      if(nrow(df_top_score) > 0){
+      
+      if (nrow(df_top_score) > 0) {
+        
         cluster_df <- data.frame(
           id = df_top_score$ID,
           group = "Unclustered",
@@ -336,7 +500,7 @@ server <- function(input, output, session) {
     summary_table_top_score(summary_table) #reactive
     updateCheckboxInput(session, "enable_physics_top_score", value = TRUE) #checkbox updater when there is a new network
     
-    
+    edges$color = ifelse( edges$color == 'green', "#D55E00", "#0072B2")
     network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
       visNodes(shape = "dot", size = "size") %>%
       visEdges(smooth = FALSE) %>%
@@ -376,6 +540,7 @@ server <- function(input, output, session) {
     input$direction_dropdown_top_score
     input$category_dropdown_top_score
   }, {
+    
     # Reset q-value threshold to default (e.g., 1.3 means q < 0.05)
     updateSliderInput(session, "qvalue_threshold_top_score", value = 5)
     
@@ -394,7 +559,21 @@ server <- function(input, output, session) {
     updateCheckboxInput(session, "include_unconnected_nodes_top_score", value = FALSE)
     
     updateCheckboxInput(session, "enable_physics_top_score", value = TRUE)
-  }) #update everything to default when there is 
+    updateCheckboxInput(
+      session,
+      "use_paper_data_top_score",
+      value = FALSE
+    )  }) #update everything to default when there is 
+  
+  observeEvent(input$metric_top_score, {
+    
+    updateCheckboxInput(
+      session,
+      "use_paper_data_top_score",
+      value = FALSE
+    )
+    
+  }, ignoreInit = TRUE)
   
   output$network_summary_top_score <- DT::renderDataTable({
     req(summary_table_top_score())
@@ -703,10 +882,11 @@ server <- function(input, output, session) {
         filter(combined_score >= input$threshold_process_gene) %>%
         mutate(
           color = case_when(
-            total_upregulated > total_downregulated ~ "green",
-            total_upregulated < total_downregulated ~ "red",
+            total_upregulated > total_downregulated ~ "#D55E00",
+            total_upregulated < total_downregulated ~ "#0072B2",
             TRUE ~ "blue"
           ),
+          
           size = 10 + 20 * combined_score,
           title = paste0(
             "Gene: ", id, "<br>",
@@ -723,8 +903,9 @@ server <- function(input, output, session) {
         user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
         user_genes_up <- translate_user_genes(user_data[user_data[[2]] > 0,1], species_info)
         user_genes_down <- translate_user_genes(user_data[user_data[[2]] < 0,1], species_info)
-        gene_nodes <- gene_nodes[(gene_nodes$color == "green" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "red" & gene_nodes$id %in% user_genes_down),]
+        gene_nodes <- gene_nodes[(gene_nodes$color == "#D55E00" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "#0072B2" & gene_nodes$id %in% user_genes_down),]
       }
+      
       upload_msg_process_gene(upload_summary_msg(n_uploaded, species_info$species, nrow(gene_nodes)))
       
       output$gene_table_process_gene <- renderDataTable({
@@ -841,10 +1022,11 @@ server <- function(input, output, session) {
         filter(combined_score >= input$threshold_process_gene) %>%
         mutate(
           color = case_when(
-            total_upregulated > total_downregulated ~ "green",
-            total_upregulated < total_downregulated ~ "red",
+            total_upregulated > total_downregulated ~ "#D55E00",
+            total_upregulated < total_downregulated ~ "#0072B2",
             TRUE ~ "blue"
           ),
+          
           size = 10 + 20 * combined_score,
           title = paste0(
             "Gene: ", id, "<br>",
@@ -861,7 +1043,7 @@ server <- function(input, output, session) {
         user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
         user_genes_up <- translate_user_genes(user_data[user_data[[2]] > 0,1], species_info)
         user_genes_down <- translate_user_genes(user_data[user_data[[2]] < 0,1], species_info)
-        gene_nodes <- gene_nodes[(gene_nodes$color == "green" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "red" & gene_nodes$id %in% user_genes_down),]
+        gene_nodes <- gene_nodes[(gene_nodes$color == "#D55E00" & gene_nodes$id %in% user_genes_up) | (gene_nodes$color == "#0072B2" & gene_nodes$id %in% user_genes_down),]
       }
       upload_msg_process_gene(upload_summary_msg(n_uploaded, species_info$species, nrow(gene_nodes)))
       
@@ -1060,17 +1242,17 @@ server <- function(input, output, session) {
       ]
     }
     
-    if(input$pubmed_string == TRUE){
-      if(input$string_top_score == "NAFLD Activity Score"){
-        genes_remove <- tcga_nas[tcga_nas$pubmed_mentioned == TRUE,]$Gene
-      }else if(input$string_top_score == "Fibrosis Stage"){
-        genes_remove <- tcga_fibrosis[tcga_fibrosis$pubmed_mentioned == TRUE,]$Gene
-      }
-      edges_string <- edges_string[
-        !(edges_string$from_gene %in% genes_remove |
-            edges_string$to_gene %in% genes_remove),
-      ]
-    }
+    # if(input$pubmed_string == TRUE){
+    #   if(input$string_top_score == "NAFLD Activity Score"){
+    #     genes_remove <- tcga_nas[tcga_nas$pubmed_mentioned == TRUE,]$Gene
+    #   }else if(input$string_top_score == "Fibrosis Stage"){
+    #     genes_remove <- tcga_fibrosis[tcga_fibrosis$pubmed_mentioned == TRUE,]$Gene
+    #   }
+    #   edges_string <- edges_string[
+    #     !(edges_string$from_gene %in% genes_remove |
+    #         edges_string$to_gene %in% genes_remove),
+    #   ]
+    # }
     
     if(input$string_direction == "Only Upregulated"){
       if(input$string_top_score == "NAFLD Activity Score"){
@@ -1192,15 +1374,15 @@ server <- function(input, output, session) {
     
     network_nodes$color <- ifelse(
       network_nodes$total_upregulated > network_nodes$total_downregulated,
-      "green",   # green
+      "#D55E00",   # #D55E00
       ifelse(
         network_nodes$total_downregulated > network_nodes$total_upregulated,
-        "red", 
+        "#0072B2", 
         "gray"  # gray
       )
     )
     
-    
+  
     
     # Convert edge list to igraph for clustering
     if (input$clustering_method_string != "No Clustering") {
@@ -1253,10 +1435,9 @@ server <- function(input, output, session) {
       user_data <- user_data[user_data[[1]] %in% user_genes_original_filtered, ]
       user_genes_up <- translate_user_genes(user_data[user_data[[2]] > 0,1], species_info)
       user_genes_down <- translate_user_genes(user_data[user_data[[2]] < 0,1], species_info)
-      network_nodes <- network_nodes[(network_nodes$color == "green" & network_nodes$id %in% user_genes_up) | (network_nodes$color == "red" & network_nodes$id %in% user_genes_down),]
+      network_nodes <- network_nodes[(network_nodes$color ==  "#D55E00" & network_nodes$id %in% user_genes_up) | (network_nodes$color == "#0072B2" & network_nodes$id %in% user_genes_down),]
     }
     upload_msg_string(upload_summary_msg(n_uploaded, species_info$species, nrow(network_nodes)))
-    
     
     summary_df_string <- data.frame(
       `Gene Name` = network_nodes$id,
@@ -1787,7 +1968,6 @@ server <- function(input, output, session) {
     # Save table for reuse in UI/download
     summary_table_temporal(summary_table) #reactive
     updateCheckboxInput(session, "enable_physics_temporal", value = TRUE) #checkbox updater when there is a new network
-    
     if(input$previous_nodes){
       edges <- edges[edges$color == "gray",]
       network_nodes <- network_nodes[network_nodes$color == "gray",]
@@ -1797,7 +1977,15 @@ server <- function(input, output, session) {
         network_nodes <- network_nodes[network_nodes$id %in% c(edges$from, edges$to),]
       } #problem due to variable naming I know this seems counterintutitive will fix it!
     }
-    
+    edges$color <- ifelse(
+      edges$color == "green",
+      "#D55E00",
+      ifelse(
+        edges$color == "red",
+        "#0072B2",
+        edges$color
+      )
+    )    
     network_object <- visNetwork(network_nodes, edges, height = "100%", width = "100%") %>%
       visNodes(shape = "dot", size = "size") %>%
       visEdges(smooth = FALSE) %>%
@@ -2116,12 +2304,12 @@ server <- function(input, output, session) {
       mutate(
         color = case_when(
           # male NAs → decide by female counts
-          is.na(male_up) & is.na(male_down) & !is.na(female_up) & !is.na(female_down) & female_up > female_down ~ "green",
-          is.na(male_up) & is.na(male_down) & !is.na(female_up) & !is.na(female_down) & female_down > female_up ~ "red",
+          is.na(male_up) & is.na(male_down) & !is.na(female_up) & !is.na(female_down) & female_up > female_down ~ "#D55E00",
+          is.na(male_up) & is.na(male_down) & !is.na(female_up) & !is.na(female_down) & female_down > female_up ~ "#0072B2",
           
           # female NAs → decide by male counts
-          is.na(female_up) & is.na(female_down) & !is.na(male_up) & !is.na(male_down) & male_up > male_down ~ "green",
-          is.na(female_up) & is.na(female_down) & !is.na(male_up) & !is.na(male_down) & male_down > male_up ~ "red",
+          is.na(female_up) & is.na(female_down) & !is.na(male_up) & !is.na(male_down) & male_up > male_down ~ "#D55E00",
+          is.na(female_up) & is.na(female_down) & !is.na(male_up) & !is.na(male_down) & male_down > male_up ~ "#0072B2",
           
           # otherwise keep whatever color was there
           TRUE ~ color
@@ -2874,6 +3062,28 @@ output$concordance_ui_browser <- renderUI({
     div(
       style = "text-align: center;",
       checkboxInput("concordance_gene_browser", "Include only top scoring genes", value = TRUE)
+      # selectInput(
+      #   inputId = "heatmap_distance_method",
+      #   label = "Distance metric:",
+      #   choices = c(
+      #     "Pearson correlation" = "correlation",
+      #     "Euclidean"           = "euclidean",
+      #     "Manhattan"           = "manhattan"
+      #   ),
+      #   selected = "correlation",
+      #   width = "100%"
+      # ),
+      # selectInput(
+      #   inputId = "heatmap_clustering_method",
+      #   label = "Clustering method:",
+      #   choices = c(
+      #     "Average linkage"  = "average",
+      #     "Complete linkage" = "complete",
+      #     "Single linkage"   = "single"
+      #   ),
+      #   selected = "average",
+      #   width = "100%"
+      # )
     )
 })
 
@@ -2965,54 +3175,572 @@ order_contrasts_numeric <- function(x) {
   x[order(mat[,1], mat[,2], na.last = TRUE)]
 }
 
-output$gene_logfc_dotplot <- renderPlotly({
+output$gene_logfc_dotplot_ui <- renderUI({
+  
   req(dot_df())
+  
   df <- dot_df()
-  validate(need(nrow(df) > 0, "No matching genes to plot."))
   
-  # x-axis order like: 1 vs 0, 2 vs 0, 3 vs 0, 4 vs 0, 4 vs 1, 4 vs 2, 4 vs 3, ...
-  x_levels <- order_contrasts_numeric(unique(df$contrast))
+  n_genes <- length(
+    unique(as.character(df$Gene))
+  )
   
-  # symmetric color limits around 0
-  lim <- max(abs(df$logFC), na.rm = TRUE)
+  plot_height <- max(
+    450,
+    n_genes * 38 + 180
+  )
   
-  # size range for bubbles
-  size_range <- c(4, 18)
+  plotlyOutput(
+    "gene_logfc_dotplot",
+    height = paste0(plot_height, "px")
+  )
+})
+
+
+output$gene_logfc_dotplot <- renderPlotly({
   
-  p <- ggplot(df, aes(
-    x = factor(contrast, levels = x_levels),
-    y = Gene
-  )) +
-    geom_point(aes(size = abs_logFC, color = logFC), alpha = 0.9) +
+  req(dot_df())
+  
+  df <- dot_df()
+  
+  validate(
+    need(nrow(df) > 0, "No matching genes to plot.")
+  )
+  
+  x_levels <- order_contrasts_numeric(
+    unique(df$contrast)
+  )
+  
+  lim <- max(
+    abs(df$logFC),
+    na.rm = TRUE
+  )
+  
+  # Smaller maximum bubble so neighboring genes do not overlap
+  size_range <- c(4, 12)
+  
+  p <- ggplot(
+    df,
+    aes(
+      x = factor(contrast, levels = x_levels),
+      y = Gene
+    )
+  ) +
+    
+    geom_point(
+      aes(
+        size = abs_logFC,
+        color = logFC
+      ),
+      alpha = 0.9
+    ) +
+    
     scale_size(
-      range = size_range, name = "|logFC|",
+      range = size_range,
+      name = "|logFC|",
       breaks = scales::breaks_pretty(n = 4)
     ) +
+    
     scale_color_gradient2(
       name = "logFC",
-      low = "#4575b4", mid = "#f7f7f7", high = "#d73027",
-      midpoint = 0, limits = c(-lim, lim),
+      low = "#4575b4",
+      mid = "#f7f7f7",
+      high = "#d73027",
+      midpoint = 0,
+      limits = c(-lim, lim),
       oob = scales::squish
     ) +
-    labs(x = NULL, y = NULL) +
-    theme_minimal(base_size = 13) +
+    
+    labs(
+      x = NULL,
+      y = NULL
+    ) +
+    
+    theme_minimal(
+      base_size = 13
+    ) +
+    
     theme(
-      panel.background = element_rect(fill = "#f9f9f9", color = NA),
-      plot.background  = element_rect(fill = "#f9f9f9", color = NA),
-      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+      panel.background = element_rect(
+        fill = NA,
+        color = NA
+      ),
+      plot.background = element_rect(
+        fill = NA,
+        color = NA
+      ),
+      axis.text.x = element_text(
+        angle = 45,
+        hjust = 1,
+        vjust = 1
+      ),
       panel.grid.major.y = element_blank(),
       panel.grid.minor = element_blank(),
       legend.title = element_text(size = 11),
-      legend.text  = element_text(size = 10)
+      legend.text = element_text(size = 10)
     )
   
-  # make height depend on #genes (about 28px per gene, with padding)
-  n_genes <- length(levels(df$Gene))
-  h <- max(350, 28 * n_genes + 250)
-  ggplotly(p, tooltip = c("y","x","colour","size")) %>%
-    layout(legend = list(orientation = "v"), height = h)
+  ggplotly(
+    p,
+    tooltip = c(
+      "y",
+      "x",
+      "colour",
+      "size"
+    )
+  ) %>%
+    layout(
+      autosize = TRUE,
+      legend = list(
+        orientation = "v"
+      ),
+      paper_bgcolor = "rgba(0,0,0,0)",
+      plot_bgcolor = "rgba(0,0,0,0)"
+    )
 })
   
+# ============================================================
+# FULL LOGFC TABLES FOR CLUSTERED GENE HEATMAP
+# Do NOT filter for significance here.
+# ============================================================
+
+heat_nas_10 <- read_xlsx("nas_individual/Individual_Analysis_1_VS_0.xlsx") %>%
+  dplyr::select(Gene, average_logFC)
+
+heat_nas_20 <- read_xlsx("nas_individual/Individual_Analysis_2_VS_0.xlsx") %>%
+  dplyr::select(Gene, average_logFC)
+
+heat_nas_30 <- read_xlsx("nas_individual/Individual_Analysis_3_VS_0.xlsx") %>%
+  dplyr::select(Gene, average_logFC)
+
+heat_nas_40 <- read_xlsx("nas_individual/Individual_Analysis_4_VS_0.xlsx") %>%
+  dplyr::select(Gene, average_logFC)
+
+
+heat_fib_F2 <- read_xlsx(
+  "fibrosis_individual/Individual_Analysis_F2_VS_F0_F1.xlsx"
+) %>%
+  dplyr::select(Gene, average_logFC)
+
+heat_fib_F3 <- read_xlsx(
+  "fibrosis_individual/Individual_Analysis_F3_VS_F0_F1.xlsx"
+) %>%
+  dplyr::select(Gene, average_logFC)
+
+heat_fib_F4 <- read_xlsx(
+  "fibrosis_individual/Individual_Analysis_F4_VS_F0_F1.xlsx"
+) %>%
+  dplyr::select(Gene, average_logFC)
+
+# ============================================================
+# CLUSTERED GENE LIST HEATMAP DATA
+# ============================================================
+
+heatmap_long_logfc <- reactive({
+  
+  req(genes_uploaded())
+  
+  if (input$metric_browser == "NAFLD Activity Score") {
+    
+    dfs <- list(
+      "1 vs 0" = heat_nas_10,
+      "2 vs 0" = heat_nas_20,
+      "3 vs 0" = heat_nas_30,
+      "4 vs 0" = heat_nas_40
+    )
+    
+  } else {
+    
+    dfs <- list(
+      "F2 vs F0/F1" = heat_fib_F2,
+      "F3 vs F0/F1" = heat_fib_F3,
+      "F4 vs F0/F1" = heat_fib_F4
+    )
+    
+  }
+  
+  dplyr::bind_rows(
+    lapply(names(dfs), function(nm) {
+      
+      df <- dfs[[nm]]
+      
+      df %>%
+        dplyr::transmute(
+          Gene = as.character(Gene),
+          stage = nm,
+          logFC = as.numeric(average_logFC)
+        )
+    })
+  ) %>%
+    dplyr::distinct(Gene, stage, .keep_all = TRUE)
+})
+
+heatmap_df <- reactive({
+  
+  req(heatmap_long_logfc(), genes_uploaded())
+  
+  gs <- genes_uploaded()
+  
+  # Same optional top scoring gene filter as dotplot
+  if (
+    !is.null(input$concordance_gene_browser) &&
+    isTRUE(input$concordance_gene_browser)
+  ) {
+    
+    if (input$metric_browser == "NAFLD Activity Score") {
+      
+      gene_scores <- scores
+      cutoff <- quantile(
+        gene_scores$total,
+        0.95,
+        na.rm = TRUE
+      )
+      
+      top_genes <- gene_scores$Gene[
+        gene_scores$total >= cutoff
+      ]
+      
+    } else {
+      
+      gene_scores <- scores_fibrosis
+      cutoff <- quantile(
+        gene_scores$total,
+        0.95,
+        na.rm = TRUE
+      )
+      
+      top_genes <- gene_scores$Gene[
+        gene_scores$total >= cutoff
+      ]
+    }
+    
+    gs <- gs[gs %in% top_genes]
+  }
+  
+  heatmap_long_logfc() %>%
+    dplyr::filter(Gene %in% gs)
+})
+
+# ============================================================
+# CLUSTERED GENE LIST HEATMAP
+# ============================================================
+output$gene_logfc_heatmap_ui <- renderUI({
+  
+  req(heatmap_df())
+  
+  df <- heatmap_df()
+  
+  # Count only genes that have at least one real logFC value
+  n_genes <- df %>%
+    dplyr::group_by(Gene) %>%
+    dplyr::summarise(
+      has_value = any(is.finite(logFC)),
+      .groups = "drop"
+    ) %>%
+    dplyr::filter(has_value) %>%
+    nrow()
+  
+  # Enough vertical space for gene labels + dendrogram
+  plot_height <- max(
+    500,
+    n_genes * 28 + 220
+  )
+  
+  plotlyOutput(
+    "gene_logfc_heatmap",
+    height = paste0(plot_height, "px")
+  )
+})
+
+output$gene_logfc_heatmap <- renderPlotly({
+  
+  df <- heatmap_df()
+  
+  validate(
+    need(nrow(df) > 0, "No matching genes to plot.")
+  )
+  
+  # ==========================================================
+  # STAGE ORDER
+  # ==========================================================
+  
+  if (input$metric_browser == "NAFLD Activity Score") {
+    
+    stage_order <- c(
+      "1 vs 0",
+      "2 vs 0",
+      "3 vs 0",
+      "4 vs 0"
+    )
+    
+  } else {
+    
+    stage_order <- c(
+      "F2 vs F0/F1",
+      "F3 vs F0/F1",
+      "F4 vs F0/F1"
+    )
+  }
+  
+  
+  # ==========================================================
+  # LONG -> WIDE
+  # ==========================================================
+  
+  wide <- df %>%
+    dplyr::select(Gene, stage, logFC) %>%
+    tidyr::pivot_wider(
+      names_from = stage,
+      values_from = logFC
+    )
+  
+  available_stages <- stage_order[
+    stage_order %in% colnames(wide)
+  ]
+  
+  validate(
+    need(
+      length(available_stages) > 1,
+      "Not enough stages available for clustering."
+    )
+  )
+  
+  wide <- wide %>%
+    dplyr::select(
+      Gene,
+      dplyr::all_of(available_stages)
+    )
+  
+  
+  # ==========================================================
+  # RAW logFC MATRIX
+  # ==========================================================
+  
+  mat_raw <- as.matrix(
+    wide[, available_stages, drop = FALSE]
+  )
+  
+  storage.mode(mat_raw) <- "numeric"
+  
+  rownames(mat_raw) <- wide$Gene
+  
+  
+  # ==========================================================
+  # DROP GENES THAT ARE NA AT EVERY STAGE
+  # ==========================================================
+  
+  keep <- rowSums(is.finite(mat_raw)) > 0
+  
+  mat_raw <- mat_raw[
+    keep,
+    ,
+    drop = FALSE
+  ]
+  
+  validate(
+    need(
+      nrow(mat_raw) > 0,
+      "None of the selected genes have stage-specific logFC values."
+    )
+  )
+  
+  
+  # ==========================================================
+  # PREPARE MATRIX ONLY FOR CLUSTERING
+  #
+  # Missing individual stage values are replaced by the
+  # gene-specific mean ONLY for calculation of distances.
+  #
+  # They remain NA in the displayed heatmap.
+  # ==========================================================
+  
+  mat_cluster <- mat_raw
+  
+  for (i in seq_len(nrow(mat_cluster))) {
+    
+    vals <- mat_cluster[i, ]
+    
+    missing <- !is.finite(vals)
+    
+    if (any(missing)) {
+      
+      replacement <- mean(
+        vals[is.finite(vals)],
+        na.rm = TRUE
+      )
+      
+      vals[missing] <- replacement
+    }
+    
+    mat_cluster[i, ] <- vals
+  }
+  
+  
+  # ==========================================================
+  # Z SCORE EACH GENE ACROSS STAGES
+  #
+  # This is used ONLY to decide which genes have similar
+  # expression patterns.
+  # ==========================================================
+  
+  mat_z <- t(
+    scale(
+      t(mat_cluster)
+    )
+  )
+  
+  mat_z[!is.finite(mat_z)] <- 0
+  
+  
+  # ==========================================================
+  # HIERARCHICAL CLUSTERING
+  # ==========================================================
+  
+  if (nrow(mat_z) > 1) {
+    
+    # --------------------------------------------------------
+    # DISTANCE METRIC
+    # --------------------------------------------------------
+    
+    if (input$heatmap_distance_method == "correlation") {
+      
+      # Pearson correlation distance:
+      # identical expression patterns -> distance 0
+      # opposite expression patterns  -> distance 2
+      
+      cor_mat <- cor(
+        t(mat_z),
+        method = "pearson",
+        use = "pairwise.complete.obs"
+      )
+      
+      # Protect against numerical issues
+      cor_mat[!is.finite(cor_mat)] <- 0
+      
+      gene_dist <- as.dist(
+        1 - cor_mat
+      )
+      
+    } else {
+      
+      gene_dist <- dist(
+        mat_z,
+        method = input$heatmap_distance_method
+      )
+    }
+    
+    
+    # --------------------------------------------------------
+    # LINKAGE METHOD
+    # --------------------------------------------------------
+    
+    gene_hclust <- hclust(
+      gene_dist,
+      method = input$heatmap_clustering_method
+    )
+    
+    gene_dendrogram <- as.dendrogram(
+      gene_hclust
+    )
+    
+  } else {
+    
+    gene_dendrogram <- FALSE
+  }
+  
+  
+  # ==========================================================
+  # SYMMETRIC COLOR LIMIT
+  #
+  # BLUE = downregulated
+  # WHITE = unchanged
+  # RED = upregulated
+  # ==========================================================
+  
+  lim <- max(
+    abs(mat_raw),
+    na.rm = TRUE
+  )
+  
+  if (!is.finite(lim) || lim == 0) {
+    lim <- 1
+  }
+  
+  
+  # ==========================================================
+  # HEATMAP + DENDROGRAM
+  # ==========================================================
+  p <- heatmaply::heatmaply(
+    
+    mat_raw,
+    
+    Rowv = gene_dendrogram,
+    Colv = FALSE,
+    
+    colors = colorRampPalette(
+      c(
+        "#4575b4",
+        "#f7f7f7",
+        "#d73027"
+      )
+    )(256),
+    
+    limits = c(
+      -lim,
+      lim
+    ),
+    
+    scale = "none",
+    
+    na.value = "#d9d9d9",
+    
+    dendrogram = "row",
+    
+    branches_lwd = 1.2,
+    
+    xlab = "",
+    ylab = "",
+    
+    main = "Clustered Gene Expression Patterns Across Stages",
+    
+    label_names = c(
+      "Gene",
+      "Stage",
+      "logFC"
+    ),
+    
+    plot_method = "plotly"
+  )
+  
+  
+  # Transparent background
+  p <- p %>%
+    plotly::layout(
+      paper_bgcolor = "rgba(0,0,0,0)",
+      plot_bgcolor  = "rgba(0,0,0,0)"
+    )
+  
+  
+  # Rename heatmap colorbar to logFC
+  p <- plotly::plotly_build(p)
+  
+  for (i in seq_along(p$x$data)) {
+    
+    if (
+      !is.null(p$x$data[[i]]$type) &&
+      p$x$data[[i]]$type == "heatmap"
+    ) {
+      
+      p$x$data[[i]]$colorbar$title <- list(
+        text = "logFC"
+      )
+    }
+  }
+  
+  p
+})
+
+
   
 }
 
