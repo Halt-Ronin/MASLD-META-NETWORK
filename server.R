@@ -3060,29 +3060,29 @@ output$concordance_ui_browser <- renderUI({
   req(input$gene_txt)
     div(
       style = "text-align: center;",
-      checkboxInput("concordance_gene_browser", "Include only top scoring genes", value = TRUE)
-      # selectInput(
-      #   inputId = "heatmap_distance_method",
-      #   label = "Distance metric:",
-      #   choices = c(
-      #     "Pearson correlation" = "correlation",
-      #     "Euclidean"           = "euclidean",
-      #     "Manhattan"           = "manhattan"
-      #   ),
-      #   selected = "correlation",
-      #   width = "100%"
-      # ),
-      # selectInput(
-      #   inputId = "heatmap_clustering_method",
-      #   label = "Clustering method:",
-      #   choices = c(
-      #     "Average linkage"  = "average",
-      #     "Complete linkage" = "complete",
-      #     "Single linkage"   = "single"
-      #   ),
-      #   selected = "average",
-      #   width = "100%"
-      # )
+      checkboxInput("concordance_gene_browser", "Include only top scoring genes", value = TRUE),
+      selectInput(
+        inputId = "heatmap_distance_method",
+        label = "Distance metric:",
+        choices = c(
+          "Pearson correlation" = "correlation",
+          "Euclidean"           = "euclidean",
+          "Manhattan"           = "manhattan"
+        ),
+        selected = "correlation",
+        width = "100%"
+      ),
+      selectInput(
+        inputId = "heatmap_clustering_method",
+        label = "Clustering method:",
+        choices = c(
+          "Average linkage"  = "average",
+          "Complete linkage" = "complete",
+          "Single linkage"   = "single"
+        ),
+        selected = "average",
+        width = "100%"
+      )
     )
 })
 
