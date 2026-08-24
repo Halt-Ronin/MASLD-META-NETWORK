@@ -157,6 +157,43 @@ server <- function(input, output, session) {
   cluster_levels_temporal <- reactiveVal(character(0))
   cluster_levels_sex_aware <- reactiveVal(character(0))
   
+  #A rename map is keyed by cluster label, and "Cluster 1" covers a different
+  #set of pathways as soon as the loaded data or the partitioning changes. Drop
+  #the map in that case instead of carrying a now-meaningless label over.
+  #Threshold sliders are deliberately not listed: they also shift membership,
+  #but wiping the names on every nudge would make renaming unusable.
+  observeEvent({
+    input$metric_top_score
+    input$direction_dropdown_top_score
+    input$category_dropdown_top_score
+    input$clustering_method_top_score
+    input$use_paper_data_top_score
+  }, {
+    cluster_rename_map_top_score(list())
+  }, ignoreInit = TRUE)
+  
+  observeEvent({
+    input$metric_temporal
+    input$direction_dropdown_temporal
+    input$category_dropdown_temporal
+    input$slider_temporal_nas
+    input$slider_temporal_fibrosis
+    input$clustering_method_temporal
+  }, {
+    cluster_rename_map_temporal(list())
+  }, ignoreInit = TRUE)
+  
+  observeEvent({
+    input$metric_sex_aware
+    input$direction_dropdown_sex_aware
+    input$category_dropdown_sex_aware_nas
+    input$category_dropdown_sex_aware_fibrosis
+    input$clustering_method_sex_aware
+  }, {
+    cluster_rename_map_sex_aware(list())
+  }, ignoreInit = TRUE)
+  
+  
   observeEvent(input$use_paper_data_top_score, {
     
     # Only apply paper settings when checkbox is checked
