@@ -769,7 +769,10 @@ server <- function(input, output, session) {
       df_initial_gene <- summary_table_top_score()
       df_initial_gene <- df_initial_gene[,-7]
       colnames(df_initial_gene) <- c("Pathway","Gene","Cluster","q-value","-log10(q)","Gene Count")
-      df_initial_gene <- df_initial_gene[df_initial_gene$'-log10(q)' >= input$qvalue_threshold_process_gene,]
+      df_initial_gene <- df_initial_gene %>%
+        filter(!is.na(`-log10(q)`), `-log10(q)` >= input$qvalue_threshold_process_gene)
+      #same NA safety as the drill-down branch below: base-R df[cond, ] turns an NA
+      #q-value into an all-NA row, which would reach igraph as an NA edge
       
       df_long_gene <- df_initial_gene %>%
         mutate(Gene = str_replace_all(Gene, "\\s*/\\s*", "/")) %>% # replace gaps in front or before spaces to "/"
