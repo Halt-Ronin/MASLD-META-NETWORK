@@ -561,29 +561,19 @@ server <- function(input, output, session) {
     input$category_dropdown_top_score
   }, {
     
-    # Reset q-value threshold to default (e.g., 1.3 means q < 0.05)
+    # Changing category or direction reloads the underlying data, so only the
+    # thresholds go back to default: their useful range is tied to that data.
+    # shared_gene in particular has its max recomputed from the new edge weights
+    # (see the observer above), so a stale value could sit past the new maximum.
+    #
+    # Deliberately NOT reset here: clustering method, edge filter method,
+    # include_unconnected_nodes, enable_physics and use_paper_data. Those are the
+    # user's analysis choices, not data-derived values, and wiping them on every
+    # category change silently discarded the clustering the user had picked.
     updateSliderInput(session, "qvalue_threshold_top_score", value = 5)
-    
-    # Reset edge filtering thresholds
     updateSliderInput(session, "shared_gene_threshold_top_score", value = 3)
     updateSliderInput(session, "jaccard_threshold_top_score", value = 0.2)
-    updateSliderInput(session, "score_threshold_top_score", value = 0)
-    
-    # Reset edge filter method
-    updateSelectInput(session, "edge_filter_method_top_score", selected = "Jaccard Index")
-    
-    # Reset clustering dropdown
-    updateSelectInput(session, "clustering_method_top_score", selected = "No Clustering")
-    
-    # Optionally reset include_unconnected_nodes
-    updateCheckboxInput(session, "include_unconnected_nodes_top_score", value = FALSE)
-    
-    updateCheckboxInput(session, "enable_physics_top_score", value = TRUE)
-    updateCheckboxInput(
-      session,
-      "use_paper_data_top_score",
-      value = FALSE
-    )  }) #update everything to default when there is 
+  })
   
   observeEvent(input$metric_top_score, {
     
