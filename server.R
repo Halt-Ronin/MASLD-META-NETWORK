@@ -976,8 +976,11 @@ server <- function(input, output, session) {
       df_initial_gene <- summary_table_top_score()
       df_initial_gene <- df_initial_gene[,-7]
       colnames(df_initial_gene) <- c("Pathway","Gene","Cluster","q-value","-log10(q)","Gene Count")
-      df_initial_gene <- df_initial_gene[df_initial_gene$'-log10(q)' >= input$qvalue_threshold_process_gene,]
-      df_initial_gene <- df_initial_gene[df_initial_gene$Cluster == selected_category, ]
+      df_initial_gene <- df_initial_gene %>%
+        filter(!is.na(`-log10(q)`), `-log10(q)` >= input$qvalue_threshold_process_gene) %>%
+        filter(!is.na(Cluster), Cluster == selected_category)
+      #dplyr filter() drops NA rows; base-R df[cond, ] turns them into all-NA rows,
+      #and an unclustered pathway (NA Cluster) then reached igraph as an NA edge
       
       
       df_long_gene <- df_initial_gene %>%
