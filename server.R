@@ -2191,27 +2191,19 @@ server <- function(input, output, session) {
     input$direction_dropdown_temporal
     input$category_dropdown_temporal
   }, {
-    # Reset q-value threshold to default (e.g., 1.3 means q < 0.05)
+    # Same narrowing as the Top-Score reset above: only the thresholds, whose
+    # useful range is tied to the data just loaded, go back to default.
+    #
+    # Deliberately NOT reset: clustering method, edge filter method,
+    # include_unconnected_nodes and enable_physics. Those are analysis choices,
+    # not data-derived values. previous_nodes stays in: it only means anything
+    # when the selected stage has an earlier one to compare against, and the
+    # branch consuming it filters down to gray nodes with no guard behind it.
     updateSliderInput(session, "qvalue_threshold_temporal", value = 5)
-    
-    # Reset edge filtering thresholds
     updateSliderInput(session, "shared_gene_threshold_temporal", value = 3)
     updateSliderInput(session, "jaccard_threshold_temporal", value = 0.2)
-    updateSliderInput(session, "score_threshold_temporal", value = 0)
-    
-    # Reset edge filter method
-    updateSelectInput(session, "edge_filter_method_temporal", selected = "Jaccard Index")
-    
-    # Reset clustering dropdown
-    updateSelectInput(session, "clustering_method_temporal", selected = "No Clustering")
-    
-    # Optionally reset include_unconnected_nodes
-    updateCheckboxInput(session, "include_unconnected_nodes_temporal", value = FALSE)
-    
-    updateCheckboxInput(session, "enable_physics_temporal", value = TRUE)
     updateCheckboxInput(session, "previous_nodes", value = FALSE)
-    
-  }) #update everything to default when there is 
+  })
   
   output$network_summary_temporal <- DT::renderDataTable({
     req(summary_table_temporal())
