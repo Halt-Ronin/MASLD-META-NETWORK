@@ -831,6 +831,11 @@ server <- function(input, output, session) {
         filter(Cluster %in% input$selected_cluster_process_gene) #filters gene-category matches according to selection
       
       
+      if (nrow(edges) == 0) {
+        showNotification("No gene-pathway pairs in the selected cluster.", type = "warning")
+        return(NULL)
+      } #without this, min()/max() below get no data and return -Inf/Inf
+      
       g <- graph_from_data_frame(edges, directed = FALSE) #creates an igraph object
       
       centrality_scores <- switch(
@@ -981,6 +986,11 @@ server <- function(input, output, session) {
       
       edges_sub <- df_long_gene %>%
         count(Gene, Pathway, name = "weight") # count the gene-category matches and call it as weight
+      
+      if (nrow(edges_sub) == 0) {
+        showNotification("No gene-pathway pairs in the selected cluster at this q-value threshold.", type = "warning")
+        return(NULL)
+      } #same guard as the full-network branch above
       
       g <- graph_from_data_frame(edges_sub, directed = FALSE)
       centrality_scores <- switch(
