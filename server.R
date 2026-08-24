@@ -17,6 +17,28 @@ library(reactable)
 
 
 server <- function(input, output, session) {
+
+  # Each metric has its own stage / category control, declared in its own
+  # conditionalPanel. conditionalPanel only hides in CSS, so both inputs are
+  # always bound and always hold a value; these pick the one that matches the
+  # metric currently selected.
+  slider_temporal_value <- reactive({
+    req(input$metric_temporal)
+    if (input$metric_temporal == "NAFLD Activity Score") {
+      input$slider_temporal_nas
+    } else {
+      input$slider_temporal_fibrosis
+    }
+  })
+
+  category_sex_aware_value <- reactive({
+    req(input$metric_sex_aware)
+    if (input$metric_sex_aware == "NAFLD Activity Score") {
+      input$category_dropdown_sex_aware_nas
+    } else {
+      input$category_dropdown_sex_aware_fibrosis
+    }
+  })
   
   # Data load 
   
@@ -1633,17 +1655,17 @@ server <- function(input, output, session) {
   selected_data_temporal_xlsx <- reactive({
     req(input$category_dropdown_temporal) ## require category_dropdown_top_score from the dropdown menu 
     if(input$metric_temporal == "NAFLD Activity Score"){
-      if(input$slider_temporal == "1"){
+      if(slider_temporal_value() == "1"){
         current_time <- "1_VS_0"
         previous_time <- NULL
         current_folder <- "first"
         previous_folder <- NULL
-      }else if(input$slider_temporal == "2"){
+      }else if(slider_temporal_value() == "2"){
         current_time <- "2_VS_0"
         previous_time <- "1_VS_0"
         current_folder <- "second"
         previous_folder <- "first"
-      }else if(input$slider_temporal == "3"){
+      }else if(slider_temporal_value() == "3"){
         current_time <- "3_VS_0"
         previous_time <- "2_VS_0"
         current_folder <- "third"
@@ -1686,12 +1708,12 @@ server <- function(input, output, session) {
         }
       } 
     }else{
-      if(input$slider_temporal == "F4"){
+      if(slider_temporal_value() == "F4"){
         current_time <- "F4_VS_F0_F1"
         previous_time <- "F3_VS_F0_F1"
         current_folder <- "third"
         previous_folder <- "second"
-      }else if(input$slider_temporal == "F3"){
+      }else if(slider_temporal_value() == "F3"){
         current_time <- "F3_VS_F0_F1"
         previous_time <- "F2_VS_F0_F1"
         current_folder <- "second"
@@ -1793,17 +1815,17 @@ server <- function(input, output, session) {
     df_temporal$gene_list <- strsplit(df_temporal$geneID, "/") ## seperate genes to get them as list
     
     if(input$metric_temporal == "NAFLD Activity Score"){
-      if(input$slider_temporal == "1"){
+      if(slider_temporal_value() == "1"){
         current_time <- "1_VS_0"
         previous_time <- NULL
         current_folder <- "first"
         previous_folder <- NULL
-      }else if(input$slider_temporal == "2"){
+      }else if(slider_temporal_value() == "2"){
         current_time <- "2_VS_0"
         previous_time <- "1_VS_0"
         current_folder <- "second"
         previous_folder <- "first"
-      }else if(input$slider_temporal == "3"){
+      }else if(slider_temporal_value() == "3"){
         current_time <- "3_VS_0"
         previous_time <- "2_VS_0"
         current_folder <- "third"
@@ -1815,12 +1837,12 @@ server <- function(input, output, session) {
         previous_folder <- "third"
       }
     }else{
-      if(input$slider_temporal == "F4"){
+      if(slider_temporal_value() == "F4"){
         current_time <- "F4_VS_F0_F1"
         previous_time <- "F3_VS_F0_F1"
         current_folder <- "third"
         previous_folder <- "second"
-      }else if(input$slider_temporal == "F3"){
+      }else if(slider_temporal_value() == "F3"){
         current_time <- "F3_VS_F0_F1"
         previous_time <- "F2_VS_F0_F1"
         current_folder <- "second"
@@ -2146,44 +2168,44 @@ server <- function(input, output, session) {
   vis_network_sex_aware <- reactiveVal(NULL) #reactive for downloading network as HTML
   
   selected_data_sex_aware_xlsx <- reactive({
-    req(input$category_dropdown_sex_aware) ## require category_dropdown_top_score from the dropdown menu 
+    req(category_sex_aware_value()) ## require category_dropdown_top_score from the dropdown menu 
     if(input$metric_sex_aware == "NAFLD Activity Score"){
       if(input$direction_dropdown_sex_aware == "All Genes"){
-        female_filename_xlsx <- paste0("female_NAS_overview_msigdb_", input$category_dropdown_sex_aware, ".xlsx") ## load the selected MSigDB result
+        female_filename_xlsx <- paste0("female_NAS_overview_msigdb_", category_sex_aware_value(), ".xlsx") ## load the selected MSigDB result
         female_filepath_xlsx <- file.path("gender/NAS", female_filename_xlsx) ## get the file path for the file
-        male_filename_xlsx <- paste0("male_NAS_overview_msigdb_", input$category_dropdown_sex_aware, ".xlsx")
+        male_filename_xlsx <- paste0("male_NAS_overview_msigdb_", category_sex_aware_value(), ".xlsx")
         male_filepath_xlsx <- file.path("gender/NAS", male_filename_xlsx)
       }else if(input$direction_dropdown_sex_aware == "Only Upregulated"){
-        female_filename_xlsx <- paste0("female_NAS_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.xlsx") 
+        female_filename_xlsx <- paste0("female_NAS_overview_msigdb_", category_sex_aware_value(), "_upregulated.xlsx") 
         female_filepath_xlsx <- file.path("gender/NAS", female_filename_xlsx) 
-        male_filename_xlsx <- paste0("male_NAS_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.xlsx") 
+        male_filename_xlsx <- paste0("male_NAS_overview_msigdb_", category_sex_aware_value(), "_upregulated.xlsx") 
         male_filepath_xlsx <- file.path("gender/NAS", male_filename_xlsx) 
       }else{
-        female_filename_xlsx <- paste0("female_NAS_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.xlsx") 
+        female_filename_xlsx <- paste0("female_NAS_overview_msigdb_", category_sex_aware_value(), "_downregulated.xlsx") 
         female_filepath_xlsx <- file.path("gender/NAS", female_filename_xlsx) 
-        male_filename_xlsx <- paste0("male_NAS_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.xlsx") 
+        male_filename_xlsx <- paste0("male_NAS_overview_msigdb_", category_sex_aware_value(), "_downregulated.xlsx") 
         male_filepath_xlsx <- file.path("gender/NAS", male_filename_xlsx) 
       } 
     }else{
       if(input$direction_dropdown_sex_aware == "All Genes"){
-        female_filename_xlsx <- paste0("female_fibrosis_overview_msigdb_", input$category_dropdown_sex_aware, ".xlsx") ## load the selected MSigDB result
+        female_filename_xlsx <- paste0("female_fibrosis_overview_msigdb_", category_sex_aware_value(), ".xlsx") ## load the selected MSigDB result
         female_filepath_xlsx <- file.path("gender/Fibrosis", female_filename_xlsx) ## get the file path for the file
-        male_filename_xlsx <- paste0("male_fibrosis_overview_msigdb_", input$category_dropdown_sex_aware, ".xlsx")
+        male_filename_xlsx <- paste0("male_fibrosis_overview_msigdb_", category_sex_aware_value(), ".xlsx")
         male_filepath_xlsx <- file.path("gender/Fibrosis", male_filename_xlsx)
       }else if(input$direction_dropdown_sex_aware == "Only Upregulated"){
-        female_filename_xlsx <- paste0("female_fibrosis_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.xlsx") 
+        female_filename_xlsx <- paste0("female_fibrosis_overview_msigdb_", category_sex_aware_value(), "_upregulated.xlsx") 
         female_filepath_xlsx <- file.path("gender/Fibrosis", female_filename_xlsx) 
-        male_filename_xlsx <- paste0("male_fibrosis_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.xlsx") 
+        male_filename_xlsx <- paste0("male_fibrosis_overview_msigdb_", category_sex_aware_value(), "_upregulated.xlsx") 
         male_filepath_xlsx <- file.path("gender/Fibrosis", male_filename_xlsx) 
       }else{
-        female_filename_xlsx <- paste0("female_fibrosis_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.xlsx") 
+        female_filename_xlsx <- paste0("female_fibrosis_overview_msigdb_", category_sex_aware_value(), "_downregulated.xlsx") 
         female_filepath_xlsx <- file.path("gender/Fibrosis", female_filename_xlsx) 
-        male_filename_xlsx <- paste0("male_fibrosis_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.xlsx") 
+        male_filename_xlsx <- paste0("male_fibrosis_overview_msigdb_", category_sex_aware_value(), "_downregulated.xlsx") 
         male_filepath_xlsx <- file.path("gender/Fibrosis", male_filename_xlsx) 
       } 
     }
     if (!file.exists(female_filepath_xlsx) | !file.exists(male_filepath_xlsx)) {
-      validate(need(FALSE, paste("No file found for", input$category_dropdown_sex_aware)))
+      validate(need(FALSE, paste("No file found for", category_sex_aware_value())))
       return(NULL)  # never actually reached because validate() stops
     }
 
@@ -2203,45 +2225,45 @@ server <- function(input, output, session) {
   })
   
   selected_data_sex_aware <- reactive({
-    req(input$category_dropdown_sex_aware, selected_data_sex_aware_xlsx()) ## require category_dropdown_top_score from the dropdown menu 
+    req(category_sex_aware_value(), selected_data_sex_aware_xlsx()) ## require category_dropdown_top_score from the dropdown menu 
     if(input$metric_sex_aware == "NAFLD Activity Score"){
       if(input$direction_dropdown_sex_aware == "All Genes"){
-        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", input$category_dropdown_sex_aware, ".rds") ## load the selected MSigDB result
+        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", category_sex_aware_value(), ".rds") ## load the selected MSigDB result
         edge_filepath_rds <- file.path("gender/NAS/network", edge_filename_rds) ## get the file path for the file
-        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", input$category_dropdown_sex_aware, ".rds") ## load the selected MSigDB result
+        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", category_sex_aware_value(), ".rds") ## load the selected MSigDB result
         node_filepath_rds <- file.path("gender/NAS/network", node_filename_rds) ## get the file path for the file
       }else if(input$direction_dropdown_sex_aware == "Only Upregulated"){
-        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.rds") ## load the selected MSigDB result
+        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", category_sex_aware_value(), "_upregulated.rds") ## load the selected MSigDB result
         edge_filepath_rds <- file.path("gender/NAS/network", edge_filename_rds) ## get the file path for the file
-        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.rds") ## load the selected MSigDB result
+        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", category_sex_aware_value(), "_upregulated.rds") ## load the selected MSigDB result
         node_filepath_rds <- file.path("gender/NAS/network", node_filename_rds) ## get the file path for the file
       }else{
-        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.rds") ## load the selected MSigDB result
+        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", category_sex_aware_value(), "_downregulated.rds") ## load the selected MSigDB result
         edge_filepath_rds <- file.path("gender/NAS/network", edge_filename_rds) ## get the file path for the file
-        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.rds") ## load the selected MSigDB result
+        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", category_sex_aware_value(), "_downregulated.rds") ## load the selected MSigDB result
         node_filepath_rds <- file.path("gender/NAS/network", node_filename_rds) ## get the file path for the file
       } 
     }else{
       if(input$direction_dropdown_sex_aware == "All Genes"){
-        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", input$category_dropdown_sex_aware, ".rds") ## load the selected MSigDB result
+        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", category_sex_aware_value(), ".rds") ## load the selected MSigDB result
         edge_filepath_rds <- file.path("gender/Fibrosis/network", edge_filename_rds) ## get the file path for the file
-        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", input$category_dropdown_sex_aware, ".rds") ## load the selected MSigDB result
+        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", category_sex_aware_value(), ".rds") ## load the selected MSigDB result
         node_filepath_rds <- file.path("gender/Fibrosis/network", node_filename_rds) ## get the file path for the file
       }else if(input$direction_dropdown_sex_aware == "Only Upregulated"){
-        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.rds") ## load the selected MSigDB result
+        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", category_sex_aware_value(), "_upregulated.rds") ## load the selected MSigDB result
         edge_filepath_rds <- file.path("gender/Fibrosis/network", edge_filename_rds) ## get the file path for the file
-        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", input$category_dropdown_sex_aware, "_upregulated.rds") ## load the selected MSigDB result
+        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", category_sex_aware_value(), "_upregulated.rds") ## load the selected MSigDB result
         node_filepath_rds <- file.path("gender/Fibrosis/network", node_filename_rds) ## get the file path for the file
       }else{
-        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.rds") ## load the selected MSigDB result
+        edge_filename_rds <- paste0("female_male_precalculated_edges_overview_msigdb_", category_sex_aware_value(), "_downregulated.rds") ## load the selected MSigDB result
         edge_filepath_rds <- file.path("gender/Fibrosis/network", edge_filename_rds) ## get the file path for the file
-        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", input$category_dropdown_sex_aware, "_downregulated.rds") ## load the selected MSigDB result
+        node_filename_rds <- paste0("female_male_nodes_overview_msigdb_", category_sex_aware_value(), "_downregulated.rds") ## load the selected MSigDB result
         node_filepath_rds <- file.path("gender/Fibrosis/network", node_filename_rds) ## get the file path for the file
       } 
     }
     
     if (!file.exists(edge_filepath_rds) | !file.exists(node_filepath_rds)) {
-      validate(need(FALSE, paste("No file found for", input$category_dropdown_sex_aware)))
+      validate(need(FALSE, paste("No file found for", category_sex_aware_value())))
       return(NULL)  # never actually reached because validate() stops
     }
     

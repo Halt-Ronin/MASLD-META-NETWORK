@@ -379,7 +379,7 @@ ui <- fluidPage(
           conditionalPanel(
             condition = "input.metric_temporal == 'NAFLD Activity Score'",
             sliderTextInput(
-              inputId = "slider_temporal",
+              inputId = "slider_temporal_nas",
               label = "Choose NAS Group (Against NAS Group 0):",
               choices = c("1", "2", "3","4"),
               selected = "4"
@@ -388,7 +388,7 @@ ui <- fluidPage(
           conditionalPanel(
             condition = "input.metric_temporal == 'Fibrosis Stage'",
           sliderTextInput(
-            inputId = "slider_temporal",
+            inputId = "slider_temporal_fibrosis",
             label = "Choose Stage (Against Fibrosis Stages F0+F1):",
             choices = c("F2", "F3", "F4"),
             selected = "F2"
@@ -479,7 +479,7 @@ ui <- fluidPage(
           conditionalPanel(
             condition = "input.metric_sex_aware == 'NAFLD Activity Score'",
             selectInput(
-              inputId = "category_dropdown_sex_aware",
+              inputId = "category_dropdown_sex_aware_nas",
               label = "Select Category:",
               choices = c("C2","C3","C4","C5","C6","C7","C8"),
               selected = "C5"
@@ -488,7 +488,7 @@ ui <- fluidPage(
           conditionalPanel(
             condition = "input.metric_sex_aware == 'Fibrosis Stage'",
             selectInput(
-              inputId = "category_dropdown_sex_aware",
+              inputId = "category_dropdown_sex_aware_fibrosis",
               label = "Select Category:",
               choices = c("C2","C3","C4","C5","C6","C7","C8","H"),
               selected = "C5"
