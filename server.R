@@ -150,6 +150,12 @@ server <- function(input, output, session) {
   output$upload_msg_process_gene <- renderText(upload_msg_process_gene())
   output$upload_msg_string <- renderText(upload_msg_string())
   cluster_rename_map_top_score <- reactiveVal(list()) #reactive list for renaming clusters
+  #Same renaming machinery for the two other clustered networks. Each tab keeps
+  #its own map and its own original labels so the three cannot interfere.
+  cluster_rename_map_temporal <- reactiveVal(list())
+  cluster_rename_map_sex_aware <- reactiveVal(list())
+  cluster_levels_temporal <- reactiveVal(character(0))
+  cluster_levels_sex_aware <- reactiveVal(character(0))
   
   observeEvent(input$use_paper_data_top_score, {
     
@@ -712,6 +718,86 @@ server <- function(input, output, session) {
     )
     
     cluster_rename_map_top_score(new_map)
+    removeModal()
+  }) #apply renaming
+  
+  observeEvent(input$open_cluster_rename_modal_temporal, {
+    cluster_names <- cluster_levels_temporal()
+    req(length(cluster_names) > 0)
+    
+    showModal(modalDialog(
+      title = "Rename Clusters",
+      size = "l",
+      easyClose = FALSE,
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("apply_cluster_renames_temporal", "Apply Renaming")
+      ),
+      fluidPage(
+        lapply(cluster_names, function(cl) {
+          inputId <- paste0("rename_temporal_", gsub(" ", "_", cl))
+          current_input <- input[[inputId]]
+          default_val <- cluster_rename_map_temporal()[[cl]] %||% cl
+          textInput(
+            inputId = inputId,
+            label = paste("Rename", cl),
+            value = if (!is.null(current_input) && nzchar(current_input)) current_input else default_val
+          )
+        })
+      )
+    ))
+  }) #renaming option
+  
+  observeEvent(input$apply_cluster_renames_temporal, {
+    cluster_names <- cluster_levels_temporal()
+    req(length(cluster_names) > 0)
+    
+    cluster_rename_map_temporal(setNames(
+      lapply(cluster_names, function(cl) {
+        input[[paste0("rename_temporal_", gsub(" ", "_", cl))]] %||% cl
+      }),
+      cluster_names
+    ))
+    removeModal()
+  }) #apply renaming
+  
+  observeEvent(input$open_cluster_rename_modal_sex_aware, {
+    cluster_names <- cluster_levels_sex_aware()
+    req(length(cluster_names) > 0)
+    
+    showModal(modalDialog(
+      title = "Rename Clusters",
+      size = "l",
+      easyClose = FALSE,
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("apply_cluster_renames_sex_aware", "Apply Renaming")
+      ),
+      fluidPage(
+        lapply(cluster_names, function(cl) {
+          inputId <- paste0("rename_sex_aware_", gsub(" ", "_", cl))
+          current_input <- input[[inputId]]
+          default_val <- cluster_rename_map_sex_aware()[[cl]] %||% cl
+          textInput(
+            inputId = inputId,
+            label = paste("Rename", cl),
+            value = if (!is.null(current_input) && nzchar(current_input)) current_input else default_val
+          )
+        })
+      )
+    ))
+  }) #renaming option
+  
+  observeEvent(input$apply_cluster_renames_sex_aware, {
+    cluster_names <- cluster_levels_sex_aware()
+    req(length(cluster_names) > 0)
+    
+    cluster_rename_map_sex_aware(setNames(
+      lapply(cluster_names, function(cl) {
+        input[[paste0("rename_sex_aware_", gsub(" ", "_", cl))]] %||% cl
+      }),
+      cluster_names
+    ))
     removeModal()
   }) #apply renaming
   
@@ -1965,6 +2051,25 @@ server <- function(input, output, session) {
        network_nodes$color <- ifelse(network_nodes$id %in% ids_only_previous, "gray", NA)
     }
     network_nodes <- merge(network_nodes, cluster_df, by = "id", all.x = TRUE) #merge with clustering info previously obtained
+    # Cluster renaming, driven by the Rename Clusters modal. Original labels are
+    # kept aside for the modal; the renamed ones replace group in place rather than
+    # arriving as an extra column, because the summary table and download below
+    # index their columns positionally.
+    cluster_levels_temporal(unique(network_nodes$group[!is.na(network_nodes$group)]))
+    rename_map_temporal <- cluster_rename_map_temporal()
+    network_nodes$group <- vapply(
+      network_nodes$group,
+      function(cl) {
+        if (!is.null(rename_map_temporal[[cl]]) && nzchar(rename_map_temporal[[cl]])) {
+          rename_map_temporal[[cl]]
+        } else {
+          cl
+        }
+      },
+      character(1),
+      USE.NAMES = FALSE
+    )
+    
     network_nodes <- network_nodes %>%
       mutate(`Lost Node` = color == "gray")
     if(!is.null(previous_time)){
@@ -2444,6 +2549,25 @@ server <- function(input, output, session) {
     }
     
     network_nodes <- merge(network_nodes, cluster_df, by = "id", all.x = TRUE) #merge with clustering info previously obtained
+    # Cluster renaming, driven by the Rename Clusters modal. Original labels are
+    # kept aside for the modal; the renamed ones replace group in place rather than
+    # arriving as an extra column, because the summary table and download below
+    # index their columns positionally.
+    cluster_levels_sex_aware(unique(network_nodes$group[!is.na(network_nodes$group)]))
+    rename_map_sex_aware <- cluster_rename_map_sex_aware()
+    network_nodes$group <- vapply(
+      network_nodes$group,
+      function(cl) {
+        if (!is.null(rename_map_sex_aware[[cl]]) && nzchar(rename_map_sex_aware[[cl]])) {
+          rename_map_sex_aware[[cl]]
+        } else {
+          cl
+        }
+      },
+      character(1),
+      USE.NAMES = FALSE
+    )
+    
     
     # palette for cluster borders (no extra packages)
     clusters <- unique(network_nodes$group)

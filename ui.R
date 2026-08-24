@@ -432,7 +432,7 @@ ui <- fluidPage(
           selectInput("clustering_method_temporal", "Clustering Method:",
                       choices = c("No Clustering", "Louvain", "Edge Betweenness", "Label Propagation"),
                       selected = "No Clustering"),
-          #  actionButton("open_cluster_rename_modal_temporal", "Rename Clusters"),
+          actionButton("open_cluster_rename_modal_temporal", "Rename Clusters"),
           checkboxInput(
             inputId = "include_unconnected_nodes_temporal",
             label = "Keep only connected nodes",
@@ -532,7 +532,7 @@ ui <- fluidPage(
           selectInput("clustering_method_sex_aware", "Clustering Method:",
                       choices = c("No Clustering", "Louvain", "Edge Betweenness", "Label Propagation"),
                       selected = "No Clustering"),
-          #  actionButton("open_cluster_rename_modal_sex_aware", "Rename Clusters"),
+          actionButton("open_cluster_rename_modal_sex_aware", "Rename Clusters"),
           checkboxInput(
             inputId = "include_unconnected_nodes_sex_aware",
             label = "Keep only connected nodes",
